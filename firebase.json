@@ -1,0 +1,10 @@
+{
+  "firestore": {
+    "rules": "ProjectApexCore/backend/firestore.rules",
+    "indexes": "ProjectApexCore/backend/firestore.indexes.json"
+  },
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20"
+  }
+}

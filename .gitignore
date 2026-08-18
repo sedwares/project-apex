@@ -1,0 +1,34 @@
+# ── macOS ────────────────────────────────────────────────────────────
+.DS_Store
+
+# ── Xcode ────────────────────────────────────────────────────────────
+# Per-user state: window positions, breakpoints, scheme ordering. Noise
+# in every diff and a source of pointless conflicts.
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+
+# ── Swift Package Manager ────────────────────────────────────────────
+# 60MB of compiled artifacts and module caches, all reproducible from
+# source. Package.resolved is deliberately NOT ignored — it pins exact
+# dependency versions, which is the whole point of committing it.
+.build/
+.swiftpm/xcode/xcuserdata/
+
+# ── Cloud Functions ──────────────────────────────────────────────────
+functions/node_modules/
+functions/.firebase/
+.firebase/
+*.log
+
+# ── Session scratch ──────────────────────────────────────────────────
+# Safety copies taken before each edit, and the staging tree. Useful on
+# disk, meaningless in history.
+_backup-*/
+_to_delete/
+
+# NOTE: GoogleService-Info.plist is intentionally tracked. It ships
+# inside the app bundle and is not a secret — Firebase security is
+# enforced by rules, not by hiding this file. A fresh clone can't build
+# without it.

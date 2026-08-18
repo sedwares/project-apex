@@ -1,0 +1,403 @@
+//
+//  DailyViewModelTests.swift
+//  ProjectApexTests
+//
+//  Full state-machine coverage for the Daily loop. Replaces the
+//  autocreated example() test. Uses a fixed challenge (day 1) so
+//  every assertion is deterministic.
+//
+
+import XCTest
+import ProjectApexCore
+@testable import ProjectApex
+
+/// In-memory store: tests never touch real UserDefaults.
+@MainActor
+final class InMemorySaveStore: DailySaveStore {
+    var records: [String: DailyRecord] = [:]
+    var lastDay = 0
+    var streak = 0
+
+    func loadRecord(forDateKey dateKey: String) -> DailyRecord? { records[dateKey] }
+    func saveRecord(_ record: DailyRecord) { records[record.dateKey] = record }
+    func registerCompletion(dayNumber: Int) {
+        guard dayNumber != lastDay else { return }
+        streak = (dayNumber == lastDay + 1) ? streak + 1 : 1
+        lastDay = dayNumber
+    }
+    func currentStreak(asOfDayNumber dayNumber: Int) -> Int {
+        (lastDay == dayNumber || lastDay == dayNumber - 1) ? streak : 0
+    }
+}
+
+@MainActor
+final class DailyViewModelTests: XCTestCase {
+
+    /// `store` defaults to nil (not `InMemorySaveStore()`) — default
+    /// arguments evaluate nonisolated, same rule as the ViewModel.
+    private func makeViewModel(
+        budget: Int? = nil,
+        store: DailySaveStore? = nil
+    ) -> DailyViewModel {
+        let store = store ?? InMemorySaveStore()
+        var challenge = ChallengeGenerator.generate(dayNumber: 1, dateKey: "test-day-1")
+        if let budget {
+            challenge = DailyChallenge(
+                id: challenge.id, dateKey: challenge.dateKey, seed: challenge.seed,
+                circuit: challenge.circuit, weather: challenge.weather,
+                budget: budget, simulationVersion: challenge.simulationVersion
+            )
+        }
+        return DailyViewModel(challenge: challenge, store: store)
+    }
+
+    private func selectAllBalanced(_ vm: DailyViewModel) {
+        // 88 credits total (engineBalanced 13).
+        vm.select(.engineBalanced)
+        vm.select(.tiresMedium)
+        vm.select(.aeroBalanced)
+        vm.select(.suspensionBalanced)
+        vm.select(.gearBalanced)
+        vm.select(.coolingStandard)
+        vm.select(.brakesBalanced)
+        vm.select(.reliabilityBalanced)
+    }
+
+    // MARK: - Initial state
+
+    func testInitialState() {
+        let vm = makeViewModel()
+        XCTAssertEqual(vm.phase, .building)
+        XCTAssertTrue(vm.selections.isEmpty)
+        XCTAssertEqual(vm.totalCost, 0)
+        XCTAssertFalse(vm.isComplete)
+        XCTAssertFalse(vm.canSubmit)
+        XCTAssertNil(vm.result)
+        XCTAssertNil(vm.identityPreview)
+    }
+
+    // MARK: - Selection semantics
+
+    func testSelectionReplacesWithinCategory() {
+        let vm = makeViewModel()
+        vm.select(.tiresSoft)
+        XCTAssertEqual(vm.selectedOption(in: .tires), .tiresSoft)
+        vm.select(.tiresHard)
+        XCTAssertEqual(vm.selectedOption(in: .tires), .tiresHard)
+        XCTAssertEqual(vm.selections.count, 1, "replacement, not accumulation")
+    }
+
+    func testReselectingSameOptionIsNoOpNotDeselect() {
+        let vm = makeViewModel()
+        vm.select(.tiresMedium)
+        vm.select(.tiresMedium)
+        XCTAssertEqual(vm.selectedOption(in: .tires), .tiresMedium)
+    }
+
+    func testCompleteSelectionEnablesSubmit() {
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        XCTAssertTrue(vm.isComplete)
+        XCTAssertEqual(vm.totalCost, 88)
+        XCTAssertFalse(vm.isOverBudget)
+        XCTAssertTrue(vm.canSubmit)
+        XCTAssertNotNil(vm.identityPreview)
+    }
+
+    // MARK: - Over-budget design (locked decision)
+
+    func testOverBudgetSelectionIsAllowedButGatesSubmit() {
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        vm.select(.enginePower)   // 13 → 25: total 100 → wait for tires
+        vm.select(.tiresSoft)     // 12 → 21: pushes over
+        XCTAssertTrue(vm.isComplete)
+        XCTAssertTrue(vm.isOverBudget)
+        XCTAssertEqual(vm.totalCost, 109)
+        XCTAssertEqual(vm.remainingCredits, -9)
+        XCTAssertFalse(vm.canSubmit, "over budget gates Submit, never the tap")
+    }
+
+    func testDroppingExpensiveOptionRestoresSubmit() {
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        vm.select(.enginePower)
+        vm.select(.tiresSoft)
+        XCTAssertFalse(vm.canSubmit)
+        vm.select(.engineEfficient) // 25 → 7
+        XCTAssertFalse(vm.isOverBudget)
+        XCTAssertTrue(vm.canSubmit)
+    }
+
+    func testCostDelta() {
+        let vm = makeViewModel()
+        vm.select(.tiresMedium) // 12
+        let soft = OptionLibrary.option(.tiresSoft)  // 21
+        let hard = OptionLibrary.option(.tiresHard)  // 8
+        XCTAssertEqual(vm.costDelta(for: soft), 9)
+        XCTAssertEqual(vm.costDelta(for: hard), -4)
+    }
+
+    // MARK: - Submit lock semantics
+
+    func testSubmitBlockedWhenIncomplete() {
+        let vm = makeViewModel()
+        vm.select(.tiresMedium)
+        vm.submit()
+        XCTAssertEqual(vm.phase, .building)
+        XCTAssertNil(vm.result)
+    }
+
+    func testSubmitLocksSelectionsAndProducesResult() {
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        vm.submit()
+
+        XCTAssertEqual(vm.phase, .submitted)
+        XCTAssertNotNil(vm.result)
+
+        // Locked: further selection attempts are ignored.
+        vm.select(.enginePower)
+        XCTAssertEqual(vm.selectedOption(in: .engineMode), .engineBalanced)
+
+        // Double-submit is a no-op.
+        let firstResult = vm.result
+        vm.submit()
+        XCTAssertEqual(vm.result, firstResult)
+    }
+
+    func testSubmittedResultMatchesDirectEngineCall() {
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        vm.submit()
+
+        let setup = PlayerSetup(
+            challengeId: vm.challenge.id,
+            selectedOptions: vm.selections
+        )
+        let direct = SimulationEngine.simulate(
+            setup: setup,
+            circuit: vm.challenge.circuit,
+            weather: vm.challenge.weather
+        )
+        XCTAssertEqual(vm.result, direct, "ViewModel adds no nondeterminism")
+    }
+
+    // MARK: - Experiment sandbox
+
+    func testExperimentSeedsFromOfficialSelectionsOnSubmit() {
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        vm.submit()
+        XCTAssertEqual(vm.experimentSelections, vm.selections)
+    }
+
+    func testExperimentSelectBeforeSubmitIsIgnored() {
+        let vm = makeViewModel()
+        vm.experimentSelect(.tiresSoft)
+        XCTAssertTrue(vm.experimentSelections.isEmpty)
+        XCTAssertFalse(vm.canRunExperiment)
+    }
+
+    func testExperimentRunIsUnofficialAndDoesNotTouchResult() {
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        vm.submit()
+        let official = vm.result
+
+        vm.experimentSelect(.tiresHard) // 12 → 8, still legal
+        vm.runExperiment()
+
+        XCTAssertNotNil(vm.experimentResult)
+        XCTAssertEqual(vm.result, official, "official result is sacred")
+        XCTAssertEqual(vm.phase, .submitted)
+        XCTAssertNotNil(vm.experimentDeltaMillis)
+    }
+
+    func testExperimentResultInvalidatesOnEdit() {
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        vm.submit()
+        vm.runExperiment()
+        XCTAssertNotNil(vm.experimentResult)
+        vm.experimentSelect(.tiresHard)
+        XCTAssertNil(vm.experimentResult, "stale result cleared on edit")
+    }
+
+    func testExperimentOverBudgetGatesRun() {
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        vm.submit()
+        vm.experimentSelect(.enginePower) // 13 → 25
+        vm.experimentSelect(.tiresSoft)   // 12 → 21: over
+        XCTAssertTrue(vm.experimentIsOverBudget)
+        XCTAssertFalse(vm.canRunExperiment)
+        vm.runExperiment()
+        XCTAssertNil(vm.experimentResult)
+    }
+
+    // MARK: - Analysis
+
+    func testLoadAnalysisComputesOptimum() async {
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        vm.submit()
+        await vm.loadAnalysis()
+
+        let analysis = try! XCTUnwrap(vm.analysis)
+        XCTAssertLessThanOrEqual(
+            analysis.minPossibleAverageLapMillis,
+            vm.result!.averageLapTimeMillis,
+            "optimum can't be slower than the player"
+        )
+        XCTAssertEqual(
+            analysis.gapToOptimalMillis,
+            vm.result!.averageLapTimeMillis - analysis.minPossibleAverageLapMillis
+        )
+        XCTAssertTrue((0...100).contains(analysis.beatPercent))
+        XCTAssertLessThanOrEqual(analysis.optimalSetup.totalCost, vm.budget)
+    }
+
+    func testLoadAnalysisBeforeSubmitIsNoOp() async {
+        let vm = makeViewModel()
+        await vm.loadAnalysis()
+        XCTAssertNil(vm.analysis)
+    }
+
+    // MARK: - Share
+
+    func testShareTextNilBeforeSubmit() {
+        let vm = makeViewModel()
+        XCTAssertNil(vm.shareText)
+    }
+
+    func testShareTextContainsResultsButNeverThePicks() async {
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        vm.submit()
+        await vm.loadAnalysis()
+
+        let text = try! XCTUnwrap(vm.shareText)
+        // What it must say:
+        XCTAssertTrue(text.contains("Project Apex"))
+        XCTAssertTrue(text.contains("Average Lap:"))
+        XCTAssertTrue(text.contains("Better than \(vm.analysis!.beatPercent)% of possible setups"))
+        XCTAssertTrue(text.contains(vm.result!.setupIdentity.displayText))
+        XCTAssertTrue(text.contains("Did you do today's Apex?"))
+        // What it must never leak — the actual option picks
+        // (identity words like "Balanced" are fine; picks are not):
+        XCTAssertFalse(text.contains("Medium"), "tire pick leaked")
+        XCTAssertFalse(text.contains("Standard"), "cooling pick leaked")
+        XCTAssertFalse(text.contains("Engine Mode"), "category detail leaked")
+    }
+
+    // MARK: - Reveal gating (competitive integrity)
+
+    func testRevealGatedUntilDayCloses() {
+        func viewModel(dateKey: String) -> DailyViewModel {
+            let day = ChallengeSeed.dayNumber(fromDateKey: dateKey)!
+            let challenge = ChallengeGenerator.generate(dayNumber: day, dateKey: dateKey)
+            return DailyViewModel(challenge: challenge, store: InMemorySaveStore())
+        }
+        // "now" fixed at 2026-07-16 12:00 UTC.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 7, day: 16, hour: 12))!
+
+        XCTAssertFalse(viewModel(dateKey: "2026-07-16").isRevealAllowed(now: now), "live day stays sealed")
+        XCTAssertFalse(viewModel(dateKey: "2026-07-17").isRevealAllowed(now: now), "future stays sealed")
+        XCTAssertTrue(viewModel(dateKey: "2026-07-15").isRevealAllowed(now: now), "yesterday reveals")
+    }
+
+    // MARK: - Persistence
+
+    func testSubmitPersistsRecord() {
+        let store = InMemorySaveStore()
+        let vm = makeViewModel(budget: 100, store: store)
+        selectAllBalanced(vm)
+        vm.submit()
+
+        let record = store.records[vm.challenge.dateKey]
+        XCTAssertNotNil(record)
+        XCTAssertEqual(record?.selections, vm.selections)
+        XCTAssertEqual(record?.result, vm.result)
+    }
+
+    func testNoPersistenceBeforeSubmit() {
+        let store = InMemorySaveStore()
+        let vm = makeViewModel(budget: 100, store: store)
+        selectAllBalanced(vm)
+        XCTAssertTrue(store.records.isEmpty)
+    }
+
+    func testRestoredDayIsSubmittedWithIdenticalResult() {
+        let store = InMemorySaveStore()
+        let first = makeViewModel(budget: 100, store: store)
+        selectAllBalanced(first)
+        first.submit()
+        let officialResult = first.result
+
+        // Fresh ViewModel, same store: relaunch simulation.
+        let restored = makeViewModel(budget: 100, store: store)
+        XCTAssertEqual(restored.phase, .submitted)
+        XCTAssertEqual(restored.result, officialResult, "determinism: restored == raced")
+        XCTAssertEqual(restored.selections, first.selections)
+        XCTAssertFalse(restored.canSubmit, "no second official submission")
+        XCTAssertEqual(restored.experimentSelections, first.selections,
+                       "experiment re-seeded from the locked setup")
+    }
+
+    func testStreakCountsConsecutiveDaysAndResets() {
+        let store = InMemorySaveStore()
+        store.registerCompletion(dayNumber: 10)
+        XCTAssertEqual(store.currentStreak(asOfDayNumber: 10), 1)
+        store.registerCompletion(dayNumber: 11)
+        XCTAssertEqual(store.currentStreak(asOfDayNumber: 11), 2)
+        store.registerCompletion(dayNumber: 11) // duplicate: no-op
+        XCTAssertEqual(store.currentStreak(asOfDayNumber: 11), 2)
+        XCTAssertEqual(store.currentStreak(asOfDayNumber: 12), 2, "alive through 'yesterday'")
+        XCTAssertEqual(store.currentStreak(asOfDayNumber: 14), 0, "gap kills it")
+        store.registerCompletion(dayNumber: 14)
+        XCTAssertEqual(store.currentStreak(asOfDayNumber: 14), 1, "reset, not resumed")
+    }
+
+    func testRestoreIgnoredOnSimulationVersionMismatch() {
+        let store = InMemorySaveStore()
+        let vm = makeViewModel(budget: 100, store: store)
+        selectAllBalanced(vm)
+        vm.submit()
+
+        // Rewrite the stored record as if from an older simulation.
+        let record = store.records[vm.challenge.dateKey]!
+        store.records[vm.challenge.dateKey] = DailyRecord(
+            dateKey: record.dateKey,
+            selections: record.selections,
+            result: record.result,
+            submittedAt: record.submittedAt,
+            simulationVersion: "sim-0.9.9"
+        )
+
+        let restored = makeViewModel(budget: 100, store: store)
+        XCTAssertEqual(restored.phase, .building, "stale-version record must be ignored")
+        XCTAssertNil(restored.result)
+    }
+
+    func testLegacyRecordWithoutVersionStillRestores() {
+        let store = InMemorySaveStore()
+        let vm = makeViewModel(budget: 100, store: store)
+        selectAllBalanced(vm)
+        vm.submit()
+
+        let record = store.records[vm.challenge.dateKey]!
+        store.records[vm.challenge.dateKey] = DailyRecord(
+            dateKey: record.dateKey,
+            selections: record.selections,
+            result: record.result,
+            submittedAt: record.submittedAt,
+            simulationVersion: nil // pre-versioning legacy
+        )
+        let restored = makeViewModel(budget: 100, store: store)
+        XCTAssertEqual(restored.phase, .submitted, "legacy records are trusted")
+    }
+
+}

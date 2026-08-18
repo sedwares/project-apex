@@ -6,6 +6,14 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		8F4FAF5B301CD761009BC9F0 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 8F4FAF5A301CD761009BC9F0 /* FirebaseAnalytics */; };
+		8F4FAF5D301CD76D009BC9F0 /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = 8F4FAF5C301CD76D009BC9F0 /* FirebaseCrashlytics */; };
+		8F6BA5D33002F30800B3CBB5 /* ProjectApexCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8F6BA5D23002F30800B3CBB5 /* ProjectApexCore */; };
+		8F7E478B3009307500BD41B0 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 8F7E478A3009307500BD41B0 /* FirebaseAuth */; };
+		8F7E478D3009308500BD41B0 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 8F7E478C3009308500BD41B0 /* FirebaseFirestore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		8F6BA5A1300056C500B3CBB5 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,6 +35,7 @@
 		8F6BA593300056C400B3CBB5 /* ProjectApex.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ProjectApex.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F6BA5A0300056C500B3CBB5 /* ProjectApexTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ProjectApexTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F6BA5AA300056C500B3CBB5 /* ProjectApexUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ProjectApexUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		8F6BA5D03002F23E00B3CBB5 /* ProjectApexCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = ProjectApexCore; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -52,6 +61,11 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8F6BA5D33002F30800B3CBB5 /* ProjectApexCore in Frameworks */,
+				8F7E478B3009307500BD41B0 /* FirebaseAuth in Frameworks */,
+				8F4FAF5D301CD76D009BC9F0 /* FirebaseCrashlytics in Frameworks */,
+				8F4FAF5B301CD761009BC9F0 /* FirebaseAnalytics in Frameworks */,
+				8F7E478D3009308500BD41B0 /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -75,9 +89,11 @@
 		8F6BA58A300056C400B3CBB5 = {
 			isa = PBXGroup;
 			children = (
+				8F6BA5D03002F23E00B3CBB5 /* ProjectApexCore */,
 				8F6BA595300056C400B3CBB5 /* ProjectApex */,
 				8F6BA5A3300056C500B3CBB5 /* ProjectApexTests */,
 				8F6BA5AD300056C500B3CBB5 /* ProjectApexUITests */,
+				8F6BA5CD3001154700B3CBB5 /* Frameworks */,
 				8F6BA594300056C400B3CBB5 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -92,6 +108,13 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		8F6BA5CD3001154700B3CBB5 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -102,6 +125,7 @@
 				8F6BA58F300056C400B3CBB5 /* Sources */,
 				8F6BA590300056C400B3CBB5 /* Frameworks */,
 				8F6BA591300056C400B3CBB5 /* Resources */,
+				8F2D215F301BBA850044C5D7 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -112,6 +136,11 @@
 			);
 			name = ProjectApex;
 			packageProductDependencies = (
+				8F6BA5D23002F30800B3CBB5 /* ProjectApexCore */,
+				8F7E478A3009307500BD41B0 /* FirebaseAuth */,
+				8F7E478C3009308500BD41B0 /* FirebaseFirestore */,
+				8F4FAF5A301CD761009BC9F0 /* FirebaseAnalytics */,
+				8F4FAF5C301CD76D009BC9F0 /* FirebaseCrashlytics */,
 			);
 			productName = ProjectApex;
 			productReference = 8F6BA593300056C400B3CBB5 /* ProjectApex.app */;
@@ -195,6 +224,11 @@
 			);
 			mainGroup = 8F6BA58A300056C400B3CBB5;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				8F6BA5D13002F2B700B3CBB5 /* XCLocalSwiftPackageReference "ProjectApexCore" */,
+				8F7E47793009001800BD41B0 /* XCRemoteSwiftPackageReference "swift-algorithms" */,
+				8F7E477A3009006E00BD41B0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8F6BA594300056C400B3CBB5 /* Products */;
 			projectDirPath = "";
@@ -230,6 +264,31 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		8F2D215F301BBA850044C5D7 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${PRODUCT_NAME}",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Info.plist",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/GoogleService-Info.plist",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\n\"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		8F6BA58F300056C400B3CBB5 /* Sources */ = {
@@ -397,6 +456,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = H868QD76KJ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -405,12 +465,13 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.sahinsedar.gridwaydaily.ProjectApex;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sahinsedar.ProjectApex;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -437,12 +498,13 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.sahinsedar.gridwaydaily.ProjectApex;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sahinsedar.ProjectApex;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -578,6 +640,59 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		8F6BA5D13002F2B700B3CBB5 /* XCLocalSwiftPackageReference "ProjectApexCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ProjectApexCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		8F7E47793009001800BD41B0 /* XCRemoteSwiftPackageReference "swift-algorithms" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-algorithms.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.2.1;
+			};
+		};
+		8F7E477A3009006E00BD41B0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.16.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8F4FAF5A301CD761009BC9F0 /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8F7E477A3009006E00BD41B0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
+		};
+		8F4FAF5C301CD76D009BC9F0 /* FirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8F7E477A3009006E00BD41B0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCrashlytics;
+		};
+		8F6BA5D23002F30800B3CBB5 /* ProjectApexCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ProjectApexCore;
+		};
+		8F7E478A3009307500BD41B0 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8F7E477A3009006E00BD41B0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		8F7E478C3009308500BD41B0 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8F7E477A3009006E00BD41B0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 8F6BA58B300056C400B3CBB5 /* Project object */;
 }

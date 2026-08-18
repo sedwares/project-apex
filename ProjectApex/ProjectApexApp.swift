@@ -2,13 +2,17 @@
 //  ProjectApexApp.swift
 //  ProjectApex
 //
-//  Created by sedar on 7/9/26.
-//
 
 import SwiftUI
+import FirebaseCore
 
 @main
 struct ProjectApexApp: App {
+    init() {
+        FirebaseApp.configure()
+        CrashReporting.configure()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

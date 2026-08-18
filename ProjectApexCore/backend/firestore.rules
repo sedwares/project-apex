@@ -1,0 +1,150 @@
+rules_version = '2';
+
+// Project Apex — security rules.
+// The database itself enforces: no future spoilers, one submission per
+// account per day, submissions only inside the challenge window,
+// impossible scores rejected via the exhaustive-solver minimum,
+// server-time-only tiebreakers, and — new in pass 6 — no reading of
+// anyone's setup until the day has closed.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Daily challenges ────────────────────────────────────────────
+    // Written only by apex-publish (admin credentials bypass rules).
+    // Readable only once open — future days are in the DB but sealed.
+    match /challenges/{dateKey} {
+      allow read: if resource.data.opensAt <= request.time;
+      allow write: if false;
+    }
+
+    // ── Leaderboard entries (PUBLIC) ────────────────────────────────
+    // Document ID == uid → one row per player per day, by construction.
+    // Create-only: no edits, no deletes, no second chances.
+    //
+    // PASS 6 — THE SPOILER FIX. This document used to carry the full
+    // `selections` map while being world-readable, which meant anyone
+    // could read the leading player's row mid-day and copy their setup
+    // verbatim. The rules sealed future challenges and rejected
+    // impossible scores, then handed out today's answer to anyone who
+    // asked. Setups now live in /setups below, gated on closesAt.
+    //
+    // Firestore has no field-level read rules — hiding a field means
+    // moving it to another document. That is the whole reason for the
+    // split. Everything the leaderboard UI and the aggregate COUNT
+    // queries need (name, times, submittedAt) stays here.
+    match /leaderboards/{dateKey}/entries/{uid} {
+      allow read: if true;
+
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+
+        // Inside the challenge window (server clock).
+        && challenge(dateKey).data.opensAt <= request.time
+        && request.time <= challenge(dateKey).data.closesAt
+
+        // Tiebreaker must be the server timestamp sentinel.
+        && request.resource.data.submittedAt == request.time
+
+        // Simulation version must match the published challenge.
+        && request.resource.data.simulationVersion
+             == challenge(dateKey).data.simulationVersion
+
+        // Exhaustive-solver sanity: nothing faster than perfect.
+        && request.resource.data.averageLapTimeMillis is int
+        && request.resource.data.averageLapTimeMillis
+             >= challenge(dateKey).data.minPossibleAverageLapMillis
+        && request.resource.data.fastestLapTimeMillis is int
+        && request.resource.data.fastestLapTimeMillis
+             <= request.resource.data.averageLapTimeMillis
+
+        // Shape checks. Note `selections` and `totalCost` are GONE from
+        // this document — a client that still writes them is running a
+        // pre-pass-6 build and is rejected rather than leaking.
+        && request.resource.data.keys().hasOnly([
+             'displayName', 'averageLapTimeMillis', 'fastestLapTimeMillis',
+             'simulationVersion', 'resultHash', 'submittedAt'
+           ])
+        && request.resource.data.keys().hasAll([
+             'displayName', 'averageLapTimeMillis', 'fastestLapTimeMillis',
+             'simulationVersion', 'resultHash', 'submittedAt'
+           ])
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 24
+        && request.resource.data.resultHash is string
+        && request.resource.data.resultHash.size() == 64;
+
+      allow update, delete: if false;
+    }
+
+    // ── Submitted setups (SEALED UNTIL THE DAY CLOSES) ───────────────
+    // Same create window as the entry, but unreadable by anyone else
+    // until closesAt has passed. After that the day is over and the
+    // setups become the archive that powers the reveal card.
+    match /leaderboards/{dateKey}/setups/{uid} {
+      allow read: if challenge(dateKey).data.closesAt <= request.time
+        || (request.auth != null && request.auth.uid == uid);
+
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && challenge(dateKey).data.opensAt <= request.time
+        && request.time <= challenge(dateKey).data.closesAt
+        && request.resource.data.submittedAt == request.time
+        && request.resource.data.keys().hasAll(['selections', 'totalCost', 'submittedAt'])
+        && request.resource.data.selections is map
+        && request.resource.data.selections.size() == 8
+        && request.resource.data.totalCost is int
+        && request.resource.data.totalCost <= challenge(dateKey).data.budget
+        // The day's technical regulation is enforced by the database,
+        // not just the client. A challenge published without a
+        // regulation carries bannedOption == '' and this passes trivially.
+        && !(challenge(dateKey).data.bannedOption
+               in request.resource.data.selections.values());
+
+      allow update: if false;
+      // Deletable by the owner ONLY, to support account deletion.
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── Player profiles ─────────────────────────────────────────────
+    match /players/{uid} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasAll(['displayName', 'createdAt'])
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 24
+        && request.resource.data.createdAt == request.time;
+      allow update: if false;
+      // App Store guideline 5.1.1(v): an account that can be created
+      // in-app must be deletable in-app. Anonymous auth still creates a
+      // profile with a public callsign, so this path has to exist.
+      // Leaderboard entries are immutable by design and are tombstoned
+      // by a Cloud Function rather than deleted here — see
+      // AccountDeletionService.
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── Deletion requests ───────────────────────────────────────────
+    // The client writes one of these; a Cloud Function drains the
+    // queue, anonymises the player's leaderboard rows and deletes the
+    // auth user. Create-only so the queue can't be tampered with.
+    match /deletionRequests/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasAll(['requestedAt'])
+        && request.resource.data.requestedAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Everything else: denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+
+  function challenge(dateKey) {
+    return get(/databases/(default)/documents/challenges/$(dateKey));
+  }
+}

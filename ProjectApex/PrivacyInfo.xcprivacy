@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  PrivacyInfo.xcprivacy
+  ProjectApex
+
+  Required by App Store Connect. The app target was missing one
+  entirely, which is a submission blocker: UserDefaults is a
+  required-reason API and every app that touches it must declare why.
+
+  Add this file to the ProjectApex target (it sits inside the
+  synchronized folder, so Xcode picks it up automatically) and verify
+  the declared data types against whichever Firebase products actually
+  ship in the build — Firebase's own SDKs carry their own manifests,
+  but the app is responsible for describing what it collects.
+
+  Reason codes used:
+    CA92.1 — UserDefaults, access limited to data written by the app
+             itself (LocalSaveService: daily records, streak, the
+             offline challenge cache).
+-->
+<plist version="1.0">
+<dict>
+    <key>NSPrivacyTracking</key>
+    <false/>
+
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>CA92.1</string>
+            </array>
+        </dict>
+    </array>
+
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array>
+        <!-- Anonymous Firebase Auth uid + generated ENG-XXXXXX callsign,
+             stored so a leaderboard row can belong to someone. Not
+             linked to a real identity and not used for tracking. -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeUserID</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Crash diagnostics, if Crashlytics ships in the build.
+             DELETE this entry if it does not. -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeCrashData</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>
