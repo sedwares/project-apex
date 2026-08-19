@@ -16,6 +16,15 @@
 //    Add --dry-run to print the documents without writing anything.
 //    Add --overwrite to REPLACE days that already exist.
 //
+//    Re-rolling a day whose draw failed the validation gate (future
+//    dates only — past dates are refused, see the guard in main):
+//        --reroll 2026-09-03=1 --reroll 2026-09-17=1 --overwrite
+//    or, preferably, keep them in a file that lives in the repo:
+//        --reroll-file rerolls.txt --overwrite
+//    A re-rolled day is NOT reproducible from its date alone, so the
+//    file is the only record of which draw is live. Losing it means
+//    losing the ability to re-derive a published challenge. Commit it.
+//
 //  Requires the Google Cloud SDK (`gcloud auth login` with the Firebase
 //  project owner account). Re-running is safe by default: existing days
 //  are skipped (create-only semantics, HTTP 409 → skip).
@@ -51,6 +60,12 @@ struct Arguments {
     /// prints "already published" for every one of them and changes
     /// nothing, which reads exactly like success.
     var overwrite = false
+    /// dateKey → nonce, for days whose canonical draw failed the gate.
+    /// Absent = nonce 0 = the canonical draw.
+    var rerolls: [String: Int] = [:]
+    /// Permit re-rolling a date at or before today. Off by default —
+    /// see the guard in main for why.
+    var allowPastReroll = false
 }
 
 func parseArguments() -> Arguments {
@@ -64,11 +79,48 @@ func parseArguments() -> Arguments {
         case "--token": args.token = iterator.next()
         case "--dry-run": args.dryRun = true
         case "--overwrite": args.overwrite = true
+        case "--reroll":
+            guard let pair = iterator.next() else { fail("--reroll needs yyyy-MM-dd=nonce") }
+            let (key, nonce) = parseReroll(pair)
+            args.rerolls[key] = nonce
+        case "--allow-past-reroll": args.allowPastReroll = true
+        case "--reroll-file":
+            guard let path = iterator.next() else { fail("--reroll-file needs a path") }
+            for (key, nonce) in parseRerollFile(path) { args.rerolls[key] = nonce }
         default:
             fail("Unknown argument: \(flag)")
         }
     }
     return args
+}
+
+/// "2026-09-03=1" → ("2026-09-03", 1). Validated hard: a typo here
+/// silently publishes the wrong draw, and you would not find out until
+/// somebody's leaderboard submission is rejected.
+func parseReroll(_ pair: String) -> (String, Int) {
+    let parts = pair.split(separator: "=")
+    guard parts.count == 2,
+          let nonce = Int(parts[1]),
+          nonce != 0,
+          ChallengeSeed.dayNumber(fromDateKey: String(parts[0])) != nil
+    else { fail("Bad --reroll \(pair) — expected yyyy-MM-dd=nonce with a non-zero nonce") }
+    return (String(parts[0]), nonce)
+}
+
+/// One `dateKey=nonce` per line. `#` starts a comment; blank lines are
+/// ignored. Keep this file in the repository — see the header.
+func parseRerollFile(_ path: String) -> [(String, Int)] {
+    guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
+        fail("Could not read --reroll-file \(path)")
+    }
+    return text.split(separator: "\n").compactMap { rawLine -> (String, Int)? in
+        // prefix(while:), not split(separator: "#") — splitting drops
+        // empty subsequences, so a line that STARTS with # yields the
+        // comment text as element 0 and every comment gets parsed.
+        let line = rawLine.prefix { $0 != "#" }.trimmingCharacters(in: .whitespaces)
+        guard !line.isEmpty else { return nil }
+        return parseReroll(line)
+    }
 }
 
 func fail(_ message: String) -> Never {
@@ -78,26 +130,16 @@ func fail(_ message: String) -> Never {
 
 // MARK: - Civil calendar (inverse of ChallengeSeed.daysSinceUnixEpoch)
 
-/// Hinnant's civil_from_days: days since 1970-01-01 → (y, m, d).
-func civilFromDays(_ z: Int) -> (year: Int, month: Int, day: Int) {
-    var z = z + 719_468
-    let era = (z >= 0 ? z : z - 146_096) / 146_097
-    let doe = z - era * 146_097
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365
-    let y = yoe + era * 400
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
-    let mp = (5 * doy + 2) / 153
-    let d = doy - (153 * mp + 2) / 5 + 1
-    let m = mp < 10 ? mp + 3 : mp - 9
-    return (m <= 2 ? y + 1 : y, m, d)
-}
+// civil_from_days now lives in ChallengeSeed — two copies of calendar
+// arithmetic is one copy too many, and the validation batch needs the
+// same inverse to label its days by date.
 
 func dateKey(daysAfter startKey: String, offset: Int) -> String {
     guard let start = ChallengeSeed.parse(dateKey: startKey) else {
         fail("Invalid --start dateKey: \(startKey) (expected yyyy-MM-dd)")
     }
     let base = ChallengeSeed.daysSinceUnixEpoch(year: start.year, month: start.month, day: start.day)
-    let c = civilFromDays(base + offset)
+    let c = ChallengeSeed.civilFromDays(base + offset)
     return String(format: "%04d-%02d-%02d", c.year, c.month, c.day)
 }
 
@@ -203,13 +245,47 @@ func publish(
 let args = parseArguments()
 guard let start = args.start else { fail("Missing --start yyyy-MM-dd") }
 guard args.days > 0 else { fail("--days must be positive") }
+if !args.rerolls.isEmpty && !args.overwrite && !args.dryRun {
+    fail("--reroll without --overwrite does nothing: the day already exists, so the create-only POST returns 409 and is skipped.")
+}
+
+// A re-roll of a date that has already passed is at best a no-op and at
+// worst destructive: that day is a finished competition, and publishing
+// a different circuit for it invalidates every result and every
+// leaderboard row recorded against it.
+//
+// This is not hypothetical. The balance gate samples days 1...180 —
+// 2026-01-01 to 2026-06-29, all historical — so its worklist is made
+// entirely of dates that must never be re-rolled. Pasting it is the
+// obvious mistake, and it is silent.
+if !args.rerolls.isEmpty,
+   let todayNumber = ChallengeSeed.dayNumber(fromDateKey: todayUTCDateKey()) {
+    let past = args.rerolls.keys
+        .filter { (ChallengeSeed.dayNumber(fromDateKey: $0) ?? 0) <= todayNumber }
+        .sorted()
+    if !past.isEmpty && !args.allowPastReroll {
+        fail("""
+            Refusing to re-roll \(past.count) date(s) at or before today (\(todayUTCDateKey())):
+            \(past.joined(separator: " "))
+            Those are finished competitions — a new draw invalidates every result recorded
+            against them. Take the worklist from the PUBLISHING WINDOW section of the gate
+            report, not the balance sample. Override with --allow-past-reroll only if you
+            are certain nobody has played them.
+            """)
+    }
+}
 if !args.dryRun {
     guard args.project != nil else { fail("Missing --project (or use --dry-run)") }
     guard args.token != nil else { fail("Missing --token (use --token \"$(gcloud auth print-access-token)\" or FIREBASE_TOKEN env)") }
 }
 
 print("apex-publish · simulationVersion \(ResultHasher.simulationVersion)")
-print("Range: \(start) + \(args.days) days · \(args.dryRun ? "DRY RUN" : "publishing to \(args.project!)")\n")
+print("Range: \(start) + \(args.days) days · \(args.dryRun ? "DRY RUN" : "publishing to \(args.project!)")")
+if !args.rerolls.isEmpty {
+    let listed = args.rerolls.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }
+    print("Re-rolls: \(listed.joined(separator: " "))")
+}
+print("")
 
 var created = 0, skipped = 0, failed = 0
 var lastKey = start
@@ -223,7 +299,8 @@ for offset in 0..<args.days {
     }
 
     let solveStart = clock.now
-    let challenge = ChallengeGenerator.generate(dayNumber: dayNumber, dateKey: key)
+    let nonce = args.rerolls[key] ?? 0
+    let challenge = ChallengeGenerator.generate(dayNumber: dayNumber, dateKey: key, nonce: nonce)
 
     // A regulation that bans the cheapest option in a category raises
     // the cost floor. If it raises it above the day's budget there is no
@@ -236,7 +313,7 @@ for offset in 0..<args.days {
             Day \(dayNumber) \(key) is unsatisfiable: budget \(challenge.budget) is below the \
             regulated minimum \(OptionLibrary.minimumTotalCost(banned: challenge.bannedOption)) \
             (regulation: \(challenge.bannedOption?.rawValue ?? "none")). \
-            Re-roll with a nonce or widen ChallengeGenerator.budgetRange.
+            Re-roll it (--reroll \(key)=\((nonce == 0 ? 1 : nonce + 1))) or widen ChallengeGenerator.budgetRange.
             """)
     }
 
@@ -248,7 +325,8 @@ for offset in 0..<args.days {
         + (clock.now - solveStart).components.seconds * 1_000
 
     let document = firestoreDocument(for: finalized)
-    let summary = "Day \(dayNumber) \(key)  \(finalized.circuit.archetype.rawValue)/\(finalized.weather.rawValue)"
+    let rollTag = nonce == 0 ? "" : "  ↻n\(nonce)"
+    let summary = "Day \(dayNumber) \(key)\(rollTag)  \(finalized.circuit.archetype.rawValue)/\(finalized.weather.rawValue)"
         + "  budget \(finalized.budget)  min \(FixedPoint.formatLapTime(millis: finalized.minPossibleAverageLapMillis))"
         + "  legal \(outcome.legalCount)  (\(solveMillis)ms)"
 

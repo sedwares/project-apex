@@ -1,0 +1,62 @@
+# apex-publish / BatchValidator re-roll register
+#
+# One `yyyy-MM-dd=nonce` per line. A day listed here was published with
+# a NON-CANONICAL draw, because its canonical draw failed a per-day
+# validation criterion (spread, diversity, or a decided-category lock).
+#
+# THIS FILE IS THE ONLY RECORD OF WHICH DRAW IS LIVE. A re-rolled day
+# cannot be reconstructed from its date alone. If this file is lost, the
+# published challenge can still be read from Firestore, but it can no
+# longer be re-derived, re-verified, or re-solved offline. Commit it.
+#
+# Used by:
+#   swift run -c release apex-publish --reroll-file rerolls.txt --overwrite ...
+#   BatchValidator.run(dayNumbers:nonces:)   ← keep the two in sync
+#
+# Nonce 1 is the first retry. If a day still fails at 1, try 2.
+
+# ── From the 90-day publishing window, validated 2026-08-19 ──────────
+#
+# ROUND 1 (nonce 1) fixed 7 of 12. These held:
+2026-09-03=1
+2026-09-12=1
+2026-09-15=1
+2026-09-16=1
+2026-10-05=1
+2026-10-30=1
+2026-11-10=1
+
+# ROUND 2 (nonce 2) — these five still failed at nonce 1, so they are
+# on their second retry. Two of them failed with a DIFFERENT fault than
+# the one that flagged them originally (2026-08-21 went from three
+# decided categories to three different decided categories), which is
+# what you would expect if roughly one day in twenty is simply prone to
+# a concentrated top 1% whatever it draws.
+2026-08-21=2
+2026-08-24=2
+2026-09-13=2
+2026-09-21=2
+2026-11-17=2
+
+# ── ACCEPTED, NOT FIXED ─────────────────────────────────────────────
+# 2026-09-13 still misses the spread target at nonce 2: 109bp against a
+# 100bp threshold. Deliberately left alone.
+#
+# Rounds went 12 failures → 5 → 1, so a third round would probably clear
+# it. It is not worth another publish cycle, for two reasons:
+#
+#   · The miss is nine basis points. The 15th-best setup of ~2,200 sits
+#     1.09% off the winner instead of 1.00%. No player can perceive that,
+#     and 100bp was a judgement call, not a measurement.
+#   · 2026-08-21 needed two rounds and changed its FAULT between them —
+#     canonical draw locked aero/reliability/suspension, nonce 1 locked
+#     aero/gear/tyres on a completely different circuit. Some share of
+#     days land concentrated whatever they draw (aerodynamics alone is
+#     unanimous on 52% of days), and re-rolling until the report is green
+#     hides that rather than fixing it.
+#
+# The gate will keep listing this day in the worklist. That is the one
+# real cost, and it is the start of a bad habit — a permanently red line
+# trains you to skim the section it lives in. Worth adding an explicit
+# accepted-list to BatchValidator so known-accepted days report
+# separately from actionable ones. Not urgent, not tonight.

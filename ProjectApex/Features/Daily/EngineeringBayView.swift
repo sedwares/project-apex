@@ -15,6 +15,13 @@
 //    through and unselectable, with the reason stated once at the top
 //    rather than as a mystery disabled row.
 //
+//  LIVERY RESTYLE:
+//  The regulation moved out of the scrolling list and into the pinned
+//  top inset, beside the circuit context. It constrains every choice on
+//  this screen, so scrolling it off the top was wrong — you could be
+//  four categories deep and no longer be able to see why one row was
+//  struck through.
+//
 
 import SwiftUI
 import ProjectApexCore
@@ -26,69 +33,70 @@ struct EngineeringBayView: View {
 
     var body: some View {
         List {
-            if let regulation = viewModel.regulationText {
-                Section {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Technical regulation")
-                                .font(.caption.weight(.semibold))
-                            Text(regulation)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                    }
-                }
-            }
-
             Section {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 12) {
                     if let identity = viewModel.identityPreview {
                         Text(identity.displayText)
-                            .font(.headline)
+                            .apexDisplay(18)
                     } else {
                         Text("Complete all 8 systems to see your identity")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(Theme.Font.body(13, weight: .regular))
+                            .foregroundStyle(Theme.Color.muted)
                     }
 
-                    Text("WHAT DECIDES TODAY")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .kerning(1.2)
+                    Text("What decides today").apexLabel()
 
-                    ForEach(viewModel.livePreview.axes, id: \.name) { axis in
-                        demandAxisRow(axis)
+                    ForEach(Array(viewModel.livePreview.axes.enumerated()), id: \.element.name) { rank, axis in
+                        DemandAxisRow(axis: axis, rank: rank)
                     }
+
+                    Text(DemandAxisRow.explainer)
+                        .font(Theme.Font.body(10.5, weight: .regular))
+                        .foregroundStyle(Theme.Color.faint)
+                        .padding(.top, 2)
                 }
                 // Baseline bars read as "all equal" rather than "nothing
                 // chosen yet"; dim until the first selection gives them
                 // something to say.
                 .opacity(viewModel.selections.isEmpty ? 0.45 : 1)
                 .animation(.easeInOut(duration: 0.2), value: viewModel.selections.isEmpty)
-                .padding(.vertical, 4)
+                .padding(.vertical, 6)
             }
+            .listRowBackground(Theme.Color.panel)
+            .listRowSeparator(.hidden)
 
             ForEach(OptionLibrary.categories) { category in
-                Section(category.displayName) {
+                Section {
                     ForEach(category.options) { option in
                         optionRow(option, in: category)
                     }
+                    .listRowBackground(Theme.Color.panel)
+                    .listRowSeparatorTint(Theme.Color.rule)
+                } header: {
+                    Text(category.displayName).apexLabel(Theme.Color.muted)
                 }
             }
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.Color.ink)
         .navigationTitle("Engineering Bay")
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .top) {
-            CircuitContextHeader(
-                circuit: viewModel.challenge.circuit,
-                weather: viewModel.challenge.weather,
-                budget: viewModel.budget
-            )
+        .toolbarBackground(Theme.Color.ink, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                CircuitContextHeader(
+                    circuit: viewModel.challenge.circuit,
+                    weather: viewModel.challenge.weather,
+                    budget: viewModel.budget
+                )
+                if let regulation = viewModel.regulationText {
+                    Text(regulation).apexNotice(Theme.Color.cream)
+                }
+            }
         }
-        .safeAreaInset(edge: .bottom) { budgetBar }
+        .safeAreaInset(edge: .bottom, spacing: 0) { budgetBar }
         .navigationDestination(isPresented: $showDebrief) {
             RaceDebriefView(viewModel: viewModel)
         }
@@ -114,40 +122,9 @@ struct EngineeringBayView: View {
     }
 
     // MARK: - Demand axis
-
-    /// The bar plus what it's worth. The share is the point: "Braking —
-    /// 18% of this lap" is the sentence that turns a decorative gauge
-    /// into a reason to spend credits.
-    private func demandAxisRow(_ axis: VehicleProfile.Axis) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(axis.name)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if axis.isInvertedStat {
-                    Text("lower is better")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                Spacer()
-                if let demand = axis.demandText {
-                    Text(demand)
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.secondary.opacity(0.15))
-                    Capsule()
-                        .fill(Color.accentColor.opacity(0.75))
-                        .frame(width: max(4, proxy.size.width * axis.fraction))
-                        .animation(.snappy(duration: 0.25), value: axis.fraction)
-                }
-            }
-            .frame(height: 5)
-        }
-    }
+    //
+    // Lives in DemandAxisRow.swift — the Debrief draws the same chart,
+    // and two copies had already drifted apart once.
 
     // MARK: - Option row
 
@@ -160,48 +137,53 @@ struct EngineeringBayView: View {
         return Button {
             viewModel.select(option.id)
         } label: {
-            HStack {
+            HStack(spacing: 12) {
                 Image(systemName: isBanned
                       ? "nosign"
                       : (isSelected ? "checkmark.circle.fill" : "circle"))
-                    .foregroundStyle(isBanned ? Color.secondary
-                                     : (isSelected ? Color.accentColor : Color.secondary))
-                VStack(alignment: .leading, spacing: 2) {
+                    .font(.system(size: 17))
+                    .foregroundStyle(isBanned ? Theme.Color.faint
+                                     : (isSelected ? Theme.Color.signal : Theme.Color.faint))
+
+                VStack(alignment: .leading, spacing: 3) {
                     Text(option.displayName)
-                        .foregroundStyle(isBanned ? .secondary : .primary)
+                        .font(Theme.Font.body(15))
+                        .foregroundStyle(isBanned ? Theme.Color.faint : Theme.Color.cream)
                         .strikethrough(isBanned)
                     if isBanned {
                         Text("Not permitted at this event")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .font(Theme.Font.body(10.5, weight: .regular))
+                            .foregroundStyle(Theme.Color.faint)
                     } else if option.topUpside != nil || option.topDownside != nil {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 9) {
                             // No sign prefix here: topUpside/topDownside
                             // already carry their own (+/−). Prefixing
                             // produced "+ +Top Speed".
                             if let up = option.topUpside {
-                                Text(up).foregroundStyle(.green)
+                                Text(up).foregroundStyle(Theme.Color.gain)
                             }
                             if let down = option.topDownside {
-                                Text(down).foregroundStyle(.orange)
+                                Text(down).foregroundStyle(Theme.Color.muted)
                             }
                         }
-                        .font(.caption2)
+                        .font(Theme.Font.body(11, weight: .medium))
                     }
                 }
-                Spacer()
+
+                Spacer(minLength: 8)
+
                 // A delta is only meaningful against an existing pick.
                 // Without one, costDelta == cost and the row rendered
                 // the same number twice ("+16  16 cr").
                 if !isBanned && categoryHasSelection && !isSelected && delta != 0 {
                     Text(delta > 0 ? "+\(delta)" : "\(delta)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(delta > 0 ? .orange : .green)
+                        .apexData(11, color: delta > 0 ? Theme.Color.notice : Theme.Color.gain)
                 }
                 Text("\(option.cost) cr")
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .apexData(13, color: Theme.Color.muted)
             }
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(viewModel.phase == .submitted || isBanned)
@@ -210,54 +192,75 @@ struct EngineeringBayView: View {
     // MARK: - Budget bar
 
     private var budgetBar: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             HStack {
-                Text("ENGINEERING BUDGET")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .kerning(1.2)
+                Text("Engineering budget").apexLabel()
                 Spacer()
                 Text("\(viewModel.selections.count) / 8 systems")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .apexData(11, weight: .medium, color: Theme.Color.muted)
             }
-            HStack {
+
+            HStack(alignment: .firstTextBaseline) {
                 Text("\(viewModel.totalCost) / \(viewModel.budget) cr")
-                    .font(.headline.monospacedDigit())
-                    .foregroundStyle(viewModel.isOverBudget ? .red : .primary)
+                    .apexData(21, weight: .bold,
+                              color: viewModel.isOverBudget ? Theme.Color.signal : Theme.Color.cream)
                     .contentTransition(.numericText())
                 Spacer()
                 if viewModel.isOverBudget {
                     Text("Over by \(-viewModel.remainingCredits)")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.red)
+                        .apexData(13, weight: .bold, color: Theme.Color.signal)
                 } else {
                     Text("\(viewModel.remainingCredits) left")
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .apexData(13, color: Theme.Color.muted)
                 }
             }
-            ProgressView(
-                value: Double(min(viewModel.totalCost, viewModel.budget)),
-                total: Double(viewModel.budget)
-            )
-            .tint(viewModel.isOverBudget ? .red : Color.accentColor)
-            .animation(.default, value: viewModel.totalCost)
+
+            // A plain rectangle rather than ProgressView: the capsule
+            // shape and the system's animation curve both belong to a
+            // different design language, and at 4pt tall the rounded
+            // ends eat most of the first few credits.
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(Theme.Color.cream.opacity(0.12))
+                    Rectangle()
+                        .fill(viewModel.isOverBudget ? Theme.Color.signal : Theme.Color.cream)
+                        .frame(width: proxy.size.width * fillFraction)
+                        .animation(.snappy(duration: 0.2), value: viewModel.totalCost)
+                }
+            }
+            .frame(height: 4)
 
             Button {
                 viewModel.submit()
                 showReplay = viewModel.result != nil
             } label: {
                 Text(submitLabel)
-                    .font(.headline)
+                    .font(Theme.Font.display(15))
+                    .tracking(1.4)
+                    .textCase(.uppercase)
+                    .foregroundStyle(viewModel.canSubmit ? Theme.Color.ink : Theme.Color.faint)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 15)
+                    .background(viewModel.canSubmit
+                                ? Theme.Color.cream : Theme.Color.cream.opacity(0.10))
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
             .disabled(!viewModel.canSubmit)
         }
-        .padding(16)
-        .background(.bar)
+        .padding(.horizontal, Theme.Metric.gutter)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .background(Theme.Color.ink)
+        .overlay(alignment: .top) {
+            Rectangle().fill(Theme.Color.rule).frame(height: 1)
+        }
+    }
+
+    /// Clamped so an over-budget setup shows a full bar rather than one
+    /// that overflows its track.
+    private var fillFraction: Double {
+        guard viewModel.budget > 0 else { return 0 }
+        return min(1, Double(viewModel.totalCost) / Double(viewModel.budget))
     }
 
     private var submitLabel: String {
@@ -266,8 +269,8 @@ struct EngineeringBayView: View {
             let remaining = EngineeringCategoryID.allCases.count - viewModel.selections.count
             return "Choose \(remaining) more"
         }
-        if viewModel.usesBannedOption { return "Illegal Setup" }
-        if viewModel.isOverBudget { return "Over Budget" }
-        return "Submit — Lock Setup"
+        if viewModel.usesBannedOption { return "Illegal setup" }
+        if viewModel.isOverBudget { return "Over budget" }
+        return "Submit — lock setup"
     }
 }

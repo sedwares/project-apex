@@ -32,3 +32,9 @@ _to_delete/
 # inside the app bundle and is not a secret — Firebase security is
 # enforced by rules, not by hiding this file. A fresh clone can't build
 # without it.
+
+# Pre-change copies made during the pass-6 / Livery work, from when this
+# tree was largely untracked and git was not yet a safety net. Note the
+# rule above is `_backup-*/` — this folder has no hyphen and slipped
+# past it. Once a change is committed, git IS the backup.
+_backups/

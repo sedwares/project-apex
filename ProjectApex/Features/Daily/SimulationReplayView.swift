@@ -45,78 +45,96 @@ struct SimulationReplayView: View {
             gauges
 
             Text(radio.map { "“\($0)”" } ?? " ")
-                .font(.footnote.italic())
-                .foregroundStyle(.secondary)
+                .font(Theme.Font.body(13, weight: .regular).italic())
+                .foregroundStyle(Theme.Color.muted)
                 .frame(height: 20)
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.3), value: radio)
 
             Spacer(minLength: 0)
 
-            Button("Skip") { onFinished() }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 12)
+            Button { onFinished() } label: {
+                Text("Skip").apexLabel(Theme.Color.muted)
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 14)
         }
         .padding(.top, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.Color.ink)
         .onAppear(perform: buildScene)
     }
 
     private var header: some View {
-        VStack(spacing: 4) {
-            Text(challenge.circuit.name)
-                .font(.headline)
+        VStack(spacing: 5) {
+            Text(challenge.circuit.name).apexDisplay(20)
             Text("\(challenge.circuit.archetype.displayName) · \(challenge.weather.displayName)")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(Theme.Font.body(12.5, weight: .regular))
+                .foregroundStyle(Theme.Color.muted)
             Text(lapLabel)
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.secondary)
-                .kerning(2)
-                .padding(.top, 4)
+                .apexLabel(Theme.Color.signal)
+                .padding(.top, 5)
         }
     }
 
     private var gauges: some View {
         HStack(spacing: 14) {
-            gauge("GRIP", value: grip, tint: .green)
-            gauge("HEAT", value: heat, tint: .orange, invert: true)
-            gauge("TIRE", value: tire, tint: .blue)
+            gauge("Grip", value: grip)
+            gauge("Heat", value: heat, invert: true)
+            gauge("Tire", value: tire)
         }
         .padding(.horizontal, 28)
     }
 
-    /// `invert` = higher is worse (heat): amber past 65%, red past 80%,
-    /// with a subtle pulse above 85% so danger actually feels dangerous.
+    /// ONE RULE FOR ALL THREE GAUGES: cream is fine, amber is a warning,
+    /// red is trouble.
+    ///
+    /// These used to be green, orange and blue — three arbitrary hues
+    /// that told you which gauge you were looking at (something the
+    /// label already does) and nothing about whether it was going well.
+    /// Grip at 12% and grip at 95% were the same green. Now the colour
+    /// carries the only thing worth carrying, and `invert` just decides
+    /// which end of the range is the bad one.
+    ///
+    /// `invert` = higher is worse (heat). Otherwise lower is worse.
     ///
     /// Values are clamped to 0...1 for PRESENTATION ONLY — Core keeps
     /// its raw numbers, which the debrief and leaderboard depend on.
     /// An unclamped value overran its track and printed e.g. "118%".
-    private func gauge(_ label: String, value rawValue: Double, tint: Color, invert: Bool = false) -> some View {
+    private func gauge(_ label: String, value rawValue: Double, invert: Bool = false) -> some View {
         let value = min(max(rawValue, 0), 1)
+        // Distance into the bad end, 0 (fine) to 1 (as bad as it gets).
+        let severity = invert ? value : 1 - value
 
         let dangerColor: Color = {
-            guard invert else { return tint }
-            if value > 0.80 { return .red }
-            if value > 0.65 { return .orange }
-            return tint
+            if severity > 0.80 { return Theme.Color.signal }
+            if severity > 0.65 { return Theme.Color.notice }
+            return Theme.Color.cream
         }()
-        let pulsing = invert && value > 0.85
+        let pulsing = severity > 0.85
 
         return VStack(spacing: 6) {
-            Text("\(label) \(Int(value * 100))%")
-                .font(.caption2.weight(.semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
-                .kerning(0.5)
+            HStack(spacing: 5) {
+                Text(label).apexLabel(Theme.Color.muted)
+                Text("\(Int(value * 100))%")
+                    .apexData(11, weight: .bold, color: dangerColor)
+            }
             GeometryReader { proxy in
                 // RoundedRectangle, not Capsule: a capsule's end caps
                 // are half its height, so a 20% fill and a 70% fill
                 // read far closer than they are. This is the TIRE/HEAT
                 // inconsistency.
-                ZStack(alignment: .bottom) {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.secondary.opacity(0.15))
-                    RoundedRectangle(cornerRadius: 4)
+                // Heat fills from the TOP down; grip and tire from the
+                // bottom up. With all three sharing one palette, a low
+                // cream bar and a high cream bar both read "fine" — and
+                // they are both fine, the colour says so — but heat
+                // rising from the floor still looks like progress toward
+                // something good. Filling downward makes it look like
+                // what it is: something closing in on you.
+                ZStack(alignment: invert ? .top : .bottom) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Theme.Color.cream.opacity(0.10))
+                    RoundedRectangle(cornerRadius: 3)
                         .fill(dangerColor)
                         .frame(height: max(2, proxy.size.height * value))
                         .opacity(pulsing ? 0.7 : 1.0)

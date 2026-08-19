@@ -17,6 +17,7 @@
 //
 
 import XCTest
+import Foundation
 @testable import ProjectApexCore
 
 final class Pass6BalanceTests: XCTestCase {
@@ -258,15 +259,100 @@ final class Pass6BalanceTests: XCTestCase {
     /// rate 54%, minimum top-1% share 16.3%, static exploit ~64%. If the
     /// Swift numbers differ materially from those, trust THIS and tell
     /// me — the port was the approximation, not the code.
+    /// The re-roll register is keyed by date and the gate is keyed by
+    /// day number, so every entry passes through this inverse. A
+    /// calendar bug here would apply the right nonce to the wrong day —
+    /// silently, and only on dates near a month or leap boundary.
+    func testDayNumberDateKeyRoundTrip() {
+        XCTAssertEqual(ChallengeSeed.dateKey(forDayNumber: 1), "2026-01-01")
+        XCTAssertEqual(ChallengeSeed.dateKey(forDayNumber: 59), "2026-02-28")
+        XCTAssertEqual(ChallengeSeed.dateKey(forDayNumber: 60), "2026-03-01")
+        XCTAssertEqual(ChallengeSeed.dateKey(forDayNumber: 230), "2026-08-18")
+        XCTAssertEqual(ChallengeSeed.dateKey(forDayNumber: 366), "2027-01-01")
+        // 2028 is a leap year — the boundary the naive version gets wrong.
+        XCTAssertEqual(ChallengeSeed.dateKey(forDayNumber: 789), "2028-02-28")
+        XCTAssertEqual(ChallengeSeed.dateKey(forDayNumber: 790), "2028-02-29")
+        XCTAssertEqual(ChallengeSeed.dateKey(forDayNumber: 791), "2028-03-01")
+
+        for day in 1...4000 {
+            let key = ChallengeSeed.dateKey(forDayNumber: day)
+            XCTAssertEqual(ChallengeSeed.dayNumber(fromDateKey: key), day, "round-trip broke at day \(day) (\(key))")
+        }
+    }
+
+    /// Today's day number (UTC). Days before this cannot be re-rolled:
+    /// a new draw for a date that has passed either does nothing or,
+    /// once the game is live, rewrites a competition people played.
+    static var todayDayNumber: Int {
+        ChallengeSeed.dayNumber(fromDateKey: UTCDateKey.make()) ?? 1
+    }
+
+    /// Reads the repository's re-roll register into dayNumber → nonce.
+    ///
+    /// Located relative to THIS SOURCE FILE, not the working directory:
+    /// `swift test` and Xcode disagree about the latter, and a loader
+    /// that silently returns [:] when it can't find the file would make
+    /// the gate quietly validate the wrong challenges.
+    static func publishedNonces() -> [Int: Int] {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // ProjectApexCoreTests
+            .deletingLastPathComponent()   // Tests
+            .deletingLastPathComponent()   // ProjectApexCore
+            .deletingLastPathComponent()   // repo root
+        let path = root.appendingPathComponent("rerolls.txt")
+        guard let text = try? String(contentsOf: path, encoding: .utf8) else {
+            print("⚠️ no rerolls.txt at \(path.path) — validating canonical draws only")
+            return [:]
+        }
+        var map: [Int: Int] = [:]
+        for rawLine in text.split(separator: "\n") {
+            let line = rawLine.prefix { $0 != "#" }.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty else { continue }
+            let parts = line.split(separator: "=")
+            guard parts.count == 2,
+                  let nonce = Int(parts[1]),
+                  let day = ChallengeSeed.dayNumber(fromDateKey: String(parts[0]))
+            else {
+                XCTFail("malformed line in rerolls.txt: \(line)")
+                continue
+            }
+            map[day] = nonce
+        }
+        return map
+    }
+
     func testFullGate() throws {
-        try XCTSkipUnless(
-            ProcessInfo.processInfo.environment["APEX_FULL_BATCH"] == "1",
-            "set APEX_FULL_BATCH=1 to run the exhaustive batch gate"
+        // APEX_FULL_BATCH is both the switch and the day count:
+        //   =1    → 30 days, a quick sanity pass
+        //   =180  → the real thing, and what tuning decisions need
+        // Parameterised so a serious run needs a scheme setting rather
+        // than a source edit you then have to remember to revert.
+        guard let raw = ProcessInfo.processInfo.environment["APEX_FULL_BATCH"] else {
+            throw XCTSkip("set APEX_FULL_BATCH=1 (or =180) to run the exhaustive batch gate")
+        }
+        let days = max(Int(raw) ?? 30, 2)
+        let range = 1...(days == 1 ? 30 : days)
+
+        // At n=30 an option's win rate carries roughly ±9 percentage
+        // points of sampling noise — wider than the distance between
+        // "healthy" and "dominant". Use 180 before changing balance.
+        print("Running the gate over \(range.count) days…")
+        // Honour the re-roll register: a day that was published with a
+        // non-canonical draw must be validated as PUBLISHED, not as its
+        // canonical draw. Without this the same days fail forever no
+        // matter how many times you re-roll them.
+        let nonces = Self.publishedNonces()
+        if !nonces.isEmpty { print("Applying \(nonces.count) re-roll(s) from rerolls.txt") }
+        let report = BatchValidator.run(
+            dayNumbers: range,
+            nonces: nonces,
+            // Days 1...180 are Jan-Jun 2026 — a statistical SAMPLE, and
+            // entirely in the past. Telling the report so keeps it from
+            // printing a confident paste-ready --reroll command made
+            // only of dates that must never be re-rolled.
+            publishableFrom: Self.todayDayNumber,
+            checkStaticExploit: true
         )
-        // 30 days in Debug; widen to 1...180 in Release for real tuning
-        // decisions — at n=30 an option's win rate carries roughly ±9
-        // percentage points of sampling noise.
-        let report = BatchValidator.run(dayNumbers: 1...30, checkStaticExploit: true)
         print(report.renderText())
 
         if let exploit = report.staticExploit {
@@ -285,6 +371,147 @@ final class Pass6BalanceTests: XCTestCase {
             XCTFail("near-dead option \(option.rawValue) at \(share)% of top-1% setups")
         }
 
-        XCTAssertTrue(report.gate.passed, "gate failures:\n" + report.gate.failures.joined(separator: "\n"))
+        // `gate.passed` is the BALANCE verdict only. Per-day spread and
+        // lock failures are a publishing worklist — they are printed in
+        // the report above and deliberately not asserted here, because a
+        // day that draws badly is re-rolled with a nonce, not fixed by
+        // changing the model. See GateResult.
+        XCTAssertTrue(
+            report.gate.passed,
+            "balance gate failed:\n" + report.gate.balanceFailures.joined(separator: "\n")
+        )
+
+        if !report.gate.dayFailures.isEmpty {
+            print(
+                "\n\(report.gate.dayFailures.count) of \(range.count) sampled days drew badly. "
+                    + "Balance is unaffected. The actionable list is below."
+            )
+        }
+
+        // ── The worklist that can actually be acted on ───────────────
+        //
+        // Everything above is a balance sample. The days you can still
+        // change are the ones that haven't happened yet, so validate
+        // those separately and take the re-roll command from HERE.
+        //
+        // The window's batch criteria are not evaluated at all: at n=90
+        // an option's win rate carries about ±6 percentage points of
+        // sampling noise, wider than the gap to the 58% ceiling. The
+        // 180-day sample above is the balance verdict; this run only
+        // answers "which upcoming days drew badly".
+        let windowStart = Self.todayDayNumber + 1
+        let windowLength = 90
+        print("\n\n═══ PUBLISHING WINDOW — the re-rollable days ═══")
+        print("\(windowLength) days from \(ChallengeSeed.dateKey(forDayNumber: windowStart))\n")
+        let window = BatchValidator.run(
+            dayNumbers: windowStart...(windowStart + windowLength - 1),
+            nonces: nonces,
+            publishableFrom: windowStart,
+            // Worklist only. The first version of this run reported
+            // "⚠️ DOMINANT suspensionStiff 62%" on a window whose
+            // 180-day parent measured 52% — a real number, drawn from a
+            // sample far too small to carry it.
+            evaluateBatchCriteria: false,
+            checkStaticExploit: false
+        )
+        print(window.renderText())
+    }
+
+    // MARK: - Drift
+
+    /// The 540-day baseline, measured 2026-08-19 at `sim-1.1.0`.
+    ///
+    /// (win rate across challenges, share of top-1% setups), both
+    /// percent, sorted by win rate.
+    ///
+    /// This is the real change-detector. A single dominance ceiling
+    /// watches one option in one direction; this watches all 24 in both,
+    /// so a change that makes something quietly WEAKER — the failure
+    /// that produced seven downside-free middle options before pass 6 —
+    /// shows up here and nowhere else.
+    ///
+    /// If you change OptionLibrary, SimulationEngine or TrackGenerator,
+    /// this test tells you what you actually did. Update the numbers
+    /// only once you have looked at the diff and agreed with it.
+    static let winRateBaseline: [EngineeringOptionID: (win: Int, share: Int)] = [
+        .suspensionStiff:     (57, 46),
+        .coolingLight:        (55, 44),
+        .reliabilityBalanced: (49, 44),
+        .tiresMedium:         (46, 43),
+        .aeroHighDownforce:   (42, 39),
+        .engineBalanced:      (42, 45),
+        .aeroLowDrag:         (40, 39),
+        .enginePower:         (40, 37),
+        .gearLong:            (40, 37),
+        .brakesConservative:  (38, 36),
+        .gearShort:           (36, 34),
+        .tiresSoft:           (36, 35),
+        .reliabilityRisky:    (31, 31),
+        .brakesAggressive:    (30, 29),
+        .brakesBalanced:      (30, 33),
+        .suspensionSoft:      (26, 26),
+        .gearBalanced:        (23, 28),
+        .coolingStandard:     (22, 30),
+        .coolingHeavy:        (21, 24),
+        .reliabilitySafe:     (19, 24),
+        .tiresHard:           (17, 20),
+        .aeroBalanced:        (16, 21),
+        .engineEfficient:     (16, 17),
+        .suspensionBalanced:  (16, 26),
+    ]
+
+    /// 8 points. At n=540 an option's win rate carries about ±2 points
+    /// of sampling noise, so 8 is roughly four standard errors — it will
+    /// not fire by chance, and anything that does move an option that
+    /// far is a design decision you want to have made deliberately.
+    static let driftTolerance = 8
+
+    /// Opt-in: 540 exhaustive solves, about 15 seconds in Release.
+    ///
+    ///     APEX_DRIFT_BATCH=1 swift test -c release -Xswiftc -enable-testing \
+    ///         --filter testOptionWinRatesHaveNotDrifted
+    func testOptionWinRatesHaveNotDrifted() throws {
+        guard ProcessInfo.processInfo.environment["APEX_DRIFT_BATCH"] != nil else {
+            throw XCTSkip("set APEX_DRIFT_BATCH=1 to check the option library against its 540-day baseline")
+        }
+
+        let report = BatchValidator.run(
+            dayNumbers: 1...540,
+            nonces: Self.publishedNonces(),
+            publishableFrom: Self.todayDayNumber,
+            checkStaticExploit: false
+        )
+
+        func signed(_ value: Int) -> String { value > 0 ? "+\(value)" : "\(value)" }
+
+        var moved: [String] = []
+        for option in EngineeringOptionID.allCases.sorted(by: { $0.rawValue < $1.rawValue }) {
+            guard let base = Self.winRateBaseline[option] else {
+                XCTFail("no baseline for \(option.rawValue) — a new option needs a new 540-day run")
+                continue
+            }
+            let win = report.optionWinRates[option] ?? 0
+            let share = report.optionTopSharePercent[option] ?? 0
+            let winDelta = win - base.win
+            let shareDelta = share - base.share
+            if abs(winDelta) > Self.driftTolerance || abs(shareDelta) > Self.driftTolerance {
+                moved.append(
+                    "  \(option.rawValue): win \(base.win)% → \(win)% (\(signed(winDelta)))"
+                        + ", top1% \(base.share)% → \(share)% (\(signed(shareDelta)))"
+                )
+            }
+        }
+
+        if !moved.isEmpty {
+            XCTFail("""
+                \(moved.count) option(s) moved more than \(Self.driftTolerance) points from the \
+                540-day baseline:
+                \(moved.joined(separator: "\n"))
+
+                If this was intentional, update winRateBaseline — and remember that a change to \
+                the option library changes lap times, so it also needs a simulationVersion bump \
+                and a full republish of every unplayed day.
+                """)
+        }
     }
 }

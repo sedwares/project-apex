@@ -41,27 +41,34 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             TabView(selection: $page) {
                 ForEach(Array(beats.enumerated()), id: \.offset) { index, beat in
-                    VStack(spacing: 24) {
+                    VStack(spacing: 22) {
                         Spacer()
                         Image(systemName: beat.icon)
-                            .font(.system(size: 56))
-                            .foregroundStyle(Color.accentColor)
+                            .font(.system(size: 52))
+                            .foregroundStyle(Theme.Color.signal)
+                        Text("Beat \(index + 1) of \(beats.count)")
+                            .apexLabel(Theme.Color.faint)
                         Text(beat.title)
-                            .font(.title2.weight(.bold))
+                            .apexDisplay(30)
                             .multilineTextAlignment(.center)
+                            .padding(.horizontal, 28)
                         Text(beat.body)
-                            .font(.body)
-                            .foregroundStyle(.secondary)
+                            .font(Theme.Font.body(15, weight: .regular))
+                            .foregroundStyle(Theme.Color.muted)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal, 36)
+                            .lineSpacing(2)
+                            .padding(.horizontal, 34)
                         Spacer()
                         Spacer()
                     }
                     .tag(index)
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: .always))
-            .indexViewStyle(.page(backgroundDisplayMode: .always))
+            // indexDisplayMode .never: the dots were the system's blue
+            // capsule on a black pill, the last piece of stock chrome on
+            // the first screen anyone sees. The beat counter above each
+            // page says the same thing in the app's own voice.
+            .tabViewStyle(.page(indexDisplayMode: .never))
 
             Button {
                 if page < beats.count - 1 {
@@ -70,19 +77,20 @@ struct OnboardingView: View {
                     onFinished()
                 }
             } label: {
-                Text(page < beats.count - 1 ? "Next" : "Enter the Paddock")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                Text(page < beats.count - 1 ? "Next" : "Enter the paddock")
+                    .apexPrimaryButton()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
             .padding(.horizontal, 24)
-            .padding(.bottom, 20)
+            .padding(.bottom, 24)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.Color.ink)
         .interactiveDismissDisabled()
     }
 }
 
 #Preview {
     OnboardingView(onFinished: {})
+        .preferredColorScheme(.dark)
 }

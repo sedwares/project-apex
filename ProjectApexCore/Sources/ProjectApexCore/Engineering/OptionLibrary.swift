@@ -48,11 +48,26 @@
 //                       Sharper identity so it beats gearLong+aeroBalanced
 //                       on its home ground instead of duplicating it.
 //
-//  Measured over 180 days with the daily regulation active: every one
-//  of the 24 options now appears in ≥16.3% of top-1% setups, the most
-//  dominant option wins 54% of days (was 60% at the gate's own limit),
-//  and the static-setup exploit drops from beating 88.2% of the field
-//  to 63.6%. See BatchValidator for the gate that enforces this.
+//  Predicted from a 180-day Python port: every one of the 24 options in
+//  >=16.3% of top-1% setups, most dominant option winning 54% of days,
+//  static-setup exploit down from 88.2% to 63.6%.
+//
+//  MEASURED IN SWIFT over 540 days (2026-08-19): min top-1% share 17%
+//  (engineEfficient), most dominant option 57% (suspensionStiff), static
+//  exploit 57%. The port was honest about the shape and about half of
+//  the numbers; it was three points optimistic about the top of the win
+//  rate distribution, which is why the gate's dominance ceiling was
+//  recalibrated from 58 to 65. See BatchValidator.Thresholds.
+//
+//  ⚠️ IF YOU CHANGE ANYTHING IN THIS FILE, RUN THE DRIFT TEST:
+//
+//      APEX_DRIFT_BATCH=1 swift test -c release -Xswiftc -enable-testing \
+//          --filter testOptionWinRatesHaveNotDrifted
+//
+//  It pins all 24 options against that 540-day baseline in both
+//  directions and fails on any move over 8 points. A cost or effect
+//  change here also changes lap times, so it needs a simulationVersion
+//  bump and a full republish of every unplayed day.
 //
 
 public nonisolated enum OptionLibrary {

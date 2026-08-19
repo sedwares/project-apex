@@ -7,6 +7,12 @@
 //  glyphs and weather effects so the player never loses the context of
 //  their decisions.
 //
+//  Livery: the archetype is condensed display type, the conditions sit
+//  to the right as a micro-label, and the layout glyphs run underneath.
+//  Deliberately quieter than the home screen's header band — this one is
+//  pinned above a scrolling list of choices and has to stay out of the
+//  way of the thing you came here to do.
+//
 
 import SwiftUI
 import ProjectApexCore
@@ -17,31 +23,39 @@ struct CircuitContextHeader: View {
     let budget: Int
 
     var body: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Label(circuit.archetype.displayName, systemImage: "map")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Label(weather.displayName, systemImage: weatherSymbol(weather))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(circuit.archetype.displayName)
+                    .apexDisplay(19)
+                Spacer(minLength: 12)
+                HStack(spacing: 4) {
+                    Image(systemName: weatherSymbol(weather))
+                    Text(weather.displayName)
+                }
+                .apexLabel(Theme.Color.signal)
             }
-            HStack(spacing: 5) {
+
+            HStack(spacing: 6) {
                 ForEach(Array(circuit.sections.enumerated()), id: \.offset) { _, section in
                     Image(systemName: glyph(for: section))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Theme.Color.faint)
                 }
-                Spacer()
+                Spacer(minLength: 0)
             }
+
             Text(weatherEffect(weather))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .font(Theme.Font.body(11, weight: .regular))
+                .foregroundStyle(Theme.Color.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.thinMaterial)
+        .padding(.horizontal, Theme.Metric.gutter)
+        .padding(.top, 10)
+        .padding(.bottom, 11)
+        .background(Theme.Color.panel)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Theme.Color.rule).frame(height: 1)
+        }
     }
 
     private func glyph(for section: TrackSectionType) -> String {

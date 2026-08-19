@@ -31,45 +31,75 @@ struct SettingsView: View {
 
     var body: some View {
         List {
-            Section("Your Engineer") {
+            Section {
                 HStack {
-                    Text("Callsign").foregroundStyle(.secondary)
+                    Text("Callsign").apexLabel()
                     Spacer()
-                    Text(callsign ?? "—")
-                        .fontWeight(.medium)
-                        .monospaced()
+                    Text(callsign ?? "—").apexData(15, weight: .bold)
                 }
-                .font(.subheadline)
+                .padding(.vertical, 3)
                 Text("Your callsign is generated from an anonymous ID. Project Apex never asks for your name, email, or contacts.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Theme.Font.body(11.5, weight: .regular))
+                    .foregroundStyle(Theme.Color.muted)
+            } header: {
+                Text("Your engineer").apexLabel(Theme.Color.muted)
             }
+            .listRowBackground(Theme.Color.panel)
+            .listRowSeparatorTint(Theme.Color.rule)
 
-            Section("Reminders") {
+            Section {
                 Text("Project Apex asks permission for a daily reminder once you've completed three assignments — never before. You can change it any time in iOS Settings.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button("Open iOS Settings") {
+                    .font(Theme.Font.body(11.5, weight: .regular))
+                    .foregroundStyle(Theme.Color.muted)
+                Button {
                     if let url = URL(string: UIApplication.openSettingsURLString) {
                         UIApplication.shared.open(url)
                     }
+                } label: {
+                    HStack(spacing: 7) {
+                        Text("Open iOS Settings")
+                        Image(systemName: "arrow.up.forward.app")
+                    }
+                    .apexLabel(Theme.Color.cream)
                 }
-                .font(.subheadline)
+                .buttonStyle(.plain)
+            } header: {
+                Text("Reminders").apexLabel(Theme.Color.muted)
             }
+            .listRowBackground(Theme.Color.panel)
+            .listRowSeparatorTint(Theme.Color.rule)
 
             Section {
                 Button(role: .destructive) {
                     confirmingDelete = true
                 } label: {
                     if isDeleting {
-                        HStack { ProgressView(); Text("Deleting…") }
+                        HStack(spacing: 10) {
+                            ProgressView().tint(Theme.Color.signal)
+                            Text("Deleting").apexLabel(Theme.Color.muted)
+                        }
                     } else {
-                        Text("Delete my engineer")
+                        // Signal red, and the ONLY red control in this
+                        // screen. "Open iOS Settings" was red too, at the
+                        // same size and weight — which made a harmless
+                        // navigation link and the one irreversible action
+                        // in the app visually identical. Red here has to
+                        // mean "this deletes your account" and nothing
+                        // else, so the other button went cream and gained
+                        // a leaves-the-app glyph.
+                        //
+                        // Still the brand red rather than a separate
+                        // "danger" colour: inventing one for a control
+                        // that appears exactly once would add a hue to
+                        // the palette to say something the isolation
+                        // already says.
+                        Text("Delete my engineer").apexLabel(Theme.Color.signal)
                     }
                 }
+                .buttonStyle(.plain)
                 .disabled(isDeleting)
             } header: {
-                Text("Data")
+                Text("Data").apexLabel(Theme.Color.muted)
             } footer: {
                 // Say exactly what survives. Claiming a completed
                 // competition will be erased would be a lie — removing a
@@ -82,18 +112,27 @@ struct SettingsView: View {
                 other people took part in, and deleting them would change everyone else's \
                 position in it.
                 """)
+                .font(Theme.Font.body(11, weight: .regular))
+                .foregroundStyle(Theme.Color.faint)
             }
+            .listRowBackground(Theme.Color.panel)
 
             if let deletionError {
                 Section {
                     Text(deletionError)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                        .font(Theme.Font.body(12, weight: .regular))
+                        .foregroundStyle(Theme.Color.signal)
                 }
+                .listRowBackground(Theme.Color.panel)
             }
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.Color.ink)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.Color.ink, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .confirmationDialog(
             "Delete your engineer?",
             isPresented: $confirmingDelete,

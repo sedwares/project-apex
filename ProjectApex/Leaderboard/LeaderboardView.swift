@@ -23,56 +23,80 @@ struct LeaderboardView: View {
         List {
             if let standing {
                 Section {
-                    VStack(spacing: 4) {
+                    VStack(spacing: 6) {
                         headline(for: standing)
                         subline(for: standing)
                         if standing.tieCount > 1 {
                             Text("\(standing.tieCount) engineers share this exact time")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(Theme.Font.body(11, weight: .regular))
+                                .foregroundStyle(Theme.Color.faint)
                         }
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 10)
                 }
+                .listRowBackground(Theme.Color.panel)
+                .listRowSeparator(.hidden)
             }
 
-            Section("Today's Top \(rows.isEmpty ? 50 : rows.count)") {
+            Section {
                 if failed {
-                    Label("Couldn't load the board — pull to retry.", systemImage: "wifi.exclamationmark")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Image(systemName: "wifi.exclamationmark")
+                        Text("Couldn't load the board — pull to retry")
+                    }
+                    .apexLabel(Theme.Color.muted)
                 } else if rows.isEmpty && !loaded {
-                    HStack { ProgressView(); Text("Loading…").foregroundStyle(.secondary) }
+                    HStack(spacing: 10) {
+                        ProgressView().tint(Theme.Color.signal)
+                        Text("Loading").apexLabel(Theme.Color.muted)
+                    }
                 } else if rows.isEmpty {
-                    Label("Waiting for today's engineers…", systemImage: "person.3")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.3")
+                        Text("Waiting for today's engineers")
+                    }
+                    .apexLabel(Theme.Color.muted)
                 } else {
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                        HStack {
+                        HStack(spacing: 10) {
                             Text("#\(index + 1)")
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                                .frame(width: 44, alignment: .leading)
+                                .apexData(13, weight: .medium, color: Theme.Color.faint)
+                                .frame(width: 40, alignment: .leading)
                             Text(row.displayName)
-                                .fontWeight(row.isYou ? .bold : .regular)
+                                .font(Theme.Font.body(14, weight: row.isYou ? .bold : .regular))
+                                .foregroundStyle(row.isYou ? Theme.Color.cream : Theme.Color.muted)
                             if row.isYou {
-                                Text("YOU")
-                                    .font(.caption2.weight(.bold))
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Color.accentColor.opacity(0.15), in: Capsule())
+                                Text("You")
+                                    .font(Theme.Font.label(9))
+                                    .tracking(1.2)
+                                    .textCase(.uppercase)
+                                    .foregroundStyle(Theme.Color.ink)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(Theme.Color.signal)
                             }
-                            Spacer()
+                            Spacer(minLength: 8)
                             Text(FixedPoint.formatLapTime(millis: row.averageLapTimeMillis))
-                                .monospacedDigit()
+                                .apexData(14, weight: row.isYou ? .bold : .regular,
+                                          color: row.isYou ? Theme.Color.cream : Theme.Color.muted)
                         }
+                        .padding(.vertical, 3)
                     }
                 }
+            } header: {
+                Text("Today's top \(rows.isEmpty ? 50 : rows.count)").apexLabel(Theme.Color.muted)
             }
+            .listRowBackground(Theme.Color.panel)
+            .listRowSeparatorTint(Theme.Color.rule)
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.Color.ink)
         .navigationTitle("Global Leaderboard")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.Color.ink, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .task { await loadRows() }
         .refreshable { await loadRows() }
     }
@@ -84,32 +108,30 @@ struct LeaderboardView: View {
     @ViewBuilder
     private func headline(for standing: LeaderboardStanding) -> some View {
         if standing.totalEntries == 1 {
-            Text("RANK #1")
-                .font(.system(size: 28, weight: .bold, design: .monospaced))
+            Text("Rank #1").apexDisplay(30)
         } else if standing.totalEntries < 10 {
-            Text("RANK #\(standing.rank) OF \(standing.totalEntries)")
-                .font(.system(size: 28, weight: .bold, design: .monospaced))
+            Text("Rank #\(standing.rank) of \(standing.totalEntries)").apexDisplay(30)
         } else {
-            Text("TOP \(standing.topPercent)% OF ENGINEERS")
-                .font(.system(size: 28, weight: .bold, design: .monospaced))
+            Text("Top \(standing.topPercent)% of engineers").apexDisplay(30)
         }
     }
 
     @ViewBuilder
     private func subline(for standing: LeaderboardStanding) -> some View {
         if standing.totalEntries == 1 {
-            Text("Only engineer today — you set the benchmark")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            sublineText("Only engineer today — you set the benchmark")
         } else if standing.totalEntries < 10 {
-            Text("Early field — percentiles arrive as more engineers join")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            sublineText("Early field — percentiles arrive as more engineers join")
         } else {
-            Text("Rank #\(standing.rank) of \(standing.totalEntries) engineers")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            sublineText("Rank #\(standing.rank) of \(standing.totalEntries) engineers")
         }
+    }
+
+    private func sublineText(_ text: String) -> some View {
+        Text(text)
+            .font(Theme.Font.body(12.5, weight: .regular))
+            .foregroundStyle(Theme.Color.muted)
+            .multilineTextAlignment(.center)
     }
 
     private func loadRows() async {

@@ -13,10 +13,21 @@
 //                  percentile from day to day and the gate failed on
 //                  small fields for no design reason.)
 //    2. Diversity: top-1% setups use ≥2 options in ≥4 of 8 categories.
-//    3. No hard lock: at most ONE category may lock in the top-1% —
-//                  or TWO on a regulated day, since the regulation is
-//                  itself a deliberate forced pick and shrinks the
-//                  field by roughly a third.
+//    3. No hard lock: at most ONE category may be effectively decided
+//                  in the top-1% — or TWO on a regulated day, since the
+//                  regulation is itself a deliberate forced pick and
+//                  shrinks the field by roughly a third.
+//
+//                  "Decided" means the modal option holds >=95% of the
+//                  slice, NOT that it holds 100%. The original test
+//                  asked whether a second option appeared at all, which
+//                  fires at 100% and passes at 97% — the same day
+//                  either way. Measured over 180 days: one day locked
+//                  aero/engine/gear at 100/100/100 and failed; another
+//                  sat at 97/97 and passed, and a player could not have
+//                  told them apart. Counting distinct options measures
+//                  the tail of the distribution; counting the mode
+//                  measures the choice.
 //
 //  Batch criteria (across all challenges):
 //    4. No dominant option: no option in >58% of winning setups.
@@ -29,6 +40,13 @@
 //    8. NO REUSABLE CAR (pass 6, new): no single fixed setup, played
 //       unchanged every day, may average better than the 70th
 //       percentile of the field.
+//
+//  ── WHAT FAILS THE GATE ────────────────────────────────────────────
+//  Criteria 4-8 (batch) fail it. Criteria 1-3 (per-day) do not: they
+//  produce a re-roll worklist instead. A day whose spread lands at
+//  103bp is a day to re-draw with a nonce, not evidence that the game
+//  is unbalanced, and treating it as the latter means the gate is red
+//  forever. See GateResult.
 //
 //  Criterion 8 is the one that caught the real problem. Everything
 //  above it passed comfortably while a single static build beat 88% of
@@ -57,8 +75,23 @@ public nonisolated struct ChallengeReport: Sendable {
     public let spreadOK: Bool
     public let diverseCategoryCount: Int // categories with ≥2 options in top 1%
     public let diversityOK: Bool
+    /// Categories whose modal option holds >= modalShareLockPercent of
+    /// the top-1% slice, mapped to that option.
     public let lockedCategories: [EngineeringCategoryID: EngineeringOptionID]
+    /// Every category's modal share of the top-1% slice, for context —
+    /// a day at 94/93/91 is not flagged but is worth seeing.
+    public let modalSharePercent: [EngineeringCategoryID: Int]
     public let noLockOK: Bool
+
+    /// "aerodynamics 100%,gearRatio 97%" — the flagged categories with
+    /// the number that flagged them, so the report never makes you go
+    /// and look up why a day failed.
+    public var lockedDescription: String {
+        lockedCategories.keys
+            .sorted { $0.rawValue < $1.rawValue }
+            .map { "\($0.rawValue) \(modalSharePercent[$0] ?? 0)%" }
+            .joined(separator: ",")
+    }
 
     public var passed: Bool { spreadOK && diversityOK && noLockOK }
 
@@ -69,9 +102,42 @@ public nonisolated struct ChallengeReport: Sendable {
     }
 }
 
+/// The gate verdict, deliberately split in two.
+///
+/// PASS 6 (second revision): these used to be one flat list, and
+/// `passed` required all of it to be empty. So a batch where every
+/// balance criterion was green still went red because 9 days out of 180
+/// came in at 103-156bp of spread against a 100bp target. That conflates
+/// two different kinds of failure:
+///
+///   - `balanceFailures` are verdicts about the GAME. A dominant option,
+///     a near-dead option, a car you can set once and forget - none of
+///     these can be fixed by choosing different days. They need the
+///     model to change. These are the gate.
+///   - `dayFailures` are verdicts about ONE DAY'S DRAW. Spread,
+///     diversity and category locks are properties of a particular
+///     circuit / weather / budget / regulation combination. The fix is a
+///     re-roll (ChallengeGenerator's `nonce`) and a republish - that is
+///     publishing work, not balance work. These are a worklist.
+///
+/// Keeping them in one bucket means the gate can never be green while
+/// any day anywhere wants re-rolling, which is both unachievable and
+/// misleading: it reports a healthy game as broken.
 public nonisolated struct GateResult: Sendable {
-    public let failures: [String]
-    public var passed: Bool { failures.isEmpty }
+    /// Batch-wide balance verdicts. These, and only these, fail the gate.
+    public let balanceFailures: [String]
+    /// Per-day draws that want a re-roll before publication.
+    public let dayFailures: [String]
+
+    public var passed: Bool { balanceFailures.isEmpty }
+
+    /// Gate green AND nothing left to re-roll. This is what a batch you
+    /// are about to publish should look like; `passed` is what a batch
+    /// you are about to change the model over should look like.
+    public var clean: Bool { passed && dayFailures.isEmpty }
+
+    /// Everything, for callers that want the whole picture.
+    public var failures: [String] { balanceFailures + dayFailures }
 }
 
 public nonisolated struct StaticExploitReport: Sendable {
@@ -94,7 +160,93 @@ public nonisolated struct BatchReport: Sendable {
     public let weatherSensitiveCategories: [EngineeringCategoryID]
     public let cheapPresencePercent: Int
     public let staticExploit: StaticExploitReport?
+    /// Day number from which a failing day can still be re-rolled.
+    /// nil = every day in this batch is in the publishable future.
+    ///
+    /// A batch run for BALANCE deliberately covers a historical sample
+    /// (days 1...180 = Jan-Jun 2026) because 30 days is too noisy to
+    /// tune on. Those days cannot be re-rolled — publishing a new draw
+    /// for a date that has already passed either does nothing or, once
+    /// the game is live, rewrites a competition people played. Without
+    /// this, the report emits a paste-ready --reroll command consisting
+    /// entirely of dates you must never re-roll, which is the worst
+    /// kind of wrong: confident, specific and actionable.
+    public let publishableFromDayNumber: Int?
+    /// dayNumber → nonce actually used for this run, so the re-roll
+    /// command can advance PAST what has already been tried.
+    public let appliedNonces: [Int: Int]
+    /// Whether the batch (cross-day) criteria were evaluated at all.
+    ///
+    /// A short run — the 90-day publishing window, say — is fine for
+    /// finding days that drew badly, and useless as a balance verdict:
+    /// at n=90 an option's win rate carries roughly ±6 percentage points
+    /// of sampling noise, which is wider than the distance between
+    /// "healthy" and the 58% dominance ceiling. Running one anyway
+    /// produced "⚠️ DOMINANT suspensionStiff 62%" on a window whose
+    /// 180-day parent measured the same option at 52% — an alarm raised
+    /// by arithmetic, not by the game.
+    ///
+    /// When false the criteria are neither evaluated nor rendered, so a
+    /// worklist run cannot be mistaken for a verdict.
+    public let batchCriteriaEvaluated: Bool
     public let gate: GateResult
+
+    /// Whether this day is still in the re-rollable future.
+    private func isPublishable(_ report: ChallengeReport) -> Bool {
+        guard let floor = publishableFromDayNumber else { return true }
+        guard let day = ChallengeSeed.dayNumber(fromDateKey: report.challenge.dateKey)
+        else { return false }
+        return day >= floor
+    }
+
+    /// Days that failed the lock check, grouped by WHICH categories
+    /// locked, most common grouping first.
+    ///
+    /// The distinction matters: one day locking three categories is a
+    /// bad draw, and a re-roll is the right answer. Five days locking
+    /// the SAME three is structural - those systems are deciding
+    /// themselves across a whole class of day, and re-rolling only
+    /// hides it until it shows up as a stale meta.
+    public var lockClusters: [(categories: String, days: Int)] {
+        var counts: [String: Int] = [:]
+        for report in challengeReports where !report.noLockOK {
+            let key = report.lockedCategories.keys
+                .map(\.rawValue).sorted().joined(separator: ",")
+            counts[key, default: 0] += 1
+        }
+        return counts
+            .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+            .map { (categories: $0.key, days: $0.value) }
+    }
+
+    /// The re-roll worklist as apex-publish arguments, ready to paste.
+    /// Empty when every day's draw is fine.
+    ///
+    /// The nonce is the one ALREADY APPLIED plus one — not a hardcoded
+    /// 1. The first version emitted `=1` for every failing day on the
+    /// grounds that "the report cannot know what you already tried",
+    /// which was simply untrue: `run(nonces:)` hands it the map. On the
+    /// second pass that produced a confident, paste-ready command whose
+    /// every argument was a no-op — republishing the exact draw that
+    /// had just been rejected, and reporting success while doing it.
+    /// The worst kind of wrong output is the kind that looks right.
+    public var rerollArguments: String {
+        challengeReports
+            .filter { !$0.passed && isPublishable($0) }
+            .map { report -> String in
+                let day = ChallengeSeed.dayNumber(fromDateKey: report.challenge.dateKey)
+                let next = (day.flatMap { appliedNonces[$0] } ?? 0) + 1
+                return "--reroll \(report.challenge.dateKey)=\(next)"
+            }
+            .joined(separator: " ")
+    }
+
+    /// Failing days that are already in the past — reportable, but not
+    /// re-rollable. Counted separately so the worklist can say so
+    /// instead of quietly dropping them.
+    public var unrollableDayCount: Int {
+        challengeReports.filter { !$0.passed && !isPublishable($0) }.count
+    }
 
     /// Pure-Swift right-padding (the package is Foundation-free).
     private func pad(_ text: String, to width: Int) -> String {
@@ -106,7 +258,11 @@ public nonisolated struct BatchReport: Sendable {
         var lines: [String] = []
         lines.append("═══ PROJECT APEX — VALIDATION BATCH REPORT ═══")
         let gateText = gate.passed ? "PASSED ✅" : "FAILED ❌"
-        lines.append("Challenges: \(challengeReports.count)   Gate: \(gateText)")
+        var header = "Challenges: \(challengeReports.count)   Gate: \(gateText)"
+        if !gate.dayFailures.isEmpty {
+            header += "   Re-roll worklist: \(gate.dayFailures.count)"
+        }
+        lines.append(header)
         if let staticExploit {
             lines.append(
                 "Best set-and-forget car beats \(staticExploit.meanPercentile)% of the field "
@@ -122,8 +278,7 @@ public nonisolated struct BatchReport: Sendable {
             let spreadFlag = report.spreadOK ? "spread✓" : "SPREAD✗(\(report.spreadGapBP)bp)"
             let diversityFlag = report.diversityOK
                 ? "div✓(\(report.diverseCategoryCount))" : "DIV✗(\(report.diverseCategoryCount))"
-            let lockedNames = report.lockedCategories.keys.map(\.rawValue).sorted().joined(separator: ",")
-            let lockFlag = report.noLockOK ? "lock✓" : "LOCK✗(\(lockedNames))"
+            let lockFlag = report.noLockOK ? "lock✓" : "LOCK✗(\(report.lockedDescription))"
 
             let minTime = FixedPoint.formatLapTime(millis: report.minPossibleAverageLapMillis)
             var line = ""
@@ -147,8 +302,10 @@ public nonisolated struct BatchReport: Sendable {
             let win = optionWinRates[option] ?? 0
             let share = optionTopSharePercent[option] ?? 0
             var marks = ""
-            if win > BatchValidator.Thresholds.maxOptionWinRatePercent { marks += "  ⚠️ DOMINANT" }
-            if share < BatchValidator.Thresholds.minTopSharePercent { marks += "  ⚠️ NEAR-DEAD" }
+            if batchCriteriaEvaluated {
+                if win > BatchValidator.Thresholds.maxOptionWinRatePercent { marks += "  ⚠️ DOMINANT" }
+                if share < BatchValidator.Thresholds.minTopSharePercent { marks += "  ⚠️ NEAR-DEAD" }
+            }
             lines.append("  \(pad(option.rawValue, to: 22)) win \(pad("\(win)%", to: 5)) top1% \(share)%" + marks)
         }
 
@@ -162,15 +319,64 @@ public nonisolated struct BatchReport: Sendable {
         lines.append("Weather-sensitive categories: \(weatherSensitiveCategories.map(\.rawValue).sorted().joined(separator: ", "))")
         lines.append("Cheap-option presence (winner uses ≥2 cheapest-in-category): \(cheapPresencePercent)%")
 
-        if !gate.passed {
+        // Not a gate — a description. The mean sits around 70% and has
+        // never been observed outside 58–78%, so a ceiling on it would
+        // pass comfortably while something was wrong, which is the
+        // failure mode criterion 8 was invented to fix. Printed so the
+        // number is visible if it ever does move.
+        lines.append("")
+        lines.append("── How decided is the top 1%, per system (mean modal share) ──")
+        var shareTotals: [EngineeringCategoryID: Int] = [:]
+        for report in challengeReports {
+            for (category, share) in report.modalSharePercent {
+                shareTotals[category, default: 0] += share
+            }
+        }
+        let dayCount = max(challengeReports.count, 1)
+        for (category, total) in shareTotals.sorted(by: { $0.value > $1.value }) {
+            let mean = total / dayCount
+            let flag = mean >= 80 ? "  ← the track decides this one" : ""
+            lines.append("  \(pad(category.rawValue, to: 20)) \(mean)%\(flag)")
+        }
+
+        lines.append("")
+        if !batchCriteriaEvaluated {
+            lines.append("── BATCH CRITERIA NOT EVALUATED — sample too small for a verdict ──")
+            lines.append("   \(challengeReports.count) days. Balance is judged on the full")
+            lines.append("   historical batch; this run exists to find days that drew badly.")
+        } else if gate.passed {
+            lines.append("── GATE: PASSED ✅ — batch balance criteria are green ──")
+        } else {
+            lines.append("── GATE FAILURES — balance, fix the model ──")
+            for failure in gate.balanceFailures { lines.append("  ✗ \(failure)") }
+        }
+
+        if !gate.dayFailures.isEmpty {
             lines.append("")
-            lines.append("── GATE FAILURES ──")
-            for failure in gate.failures { lines.append("  ✗ \(failure)") }
-            let rerolls = challengeReports.compactMap(\.rerollHint)
-            if !rerolls.isEmpty {
+            lines.append(
+                "── RE-ROLL WORKLIST (\(gate.dayFailures.count) of "
+                    + "\(challengeReports.count) days) — publishing, not balance ──"
+            )
+            for failure in gate.dayFailures { lines.append("  ↻ \(failure)") }
+            lines.append("")
+            let arguments = rerollArguments
+            if arguments.isEmpty {
+                lines.append("  Nothing to paste: all \(unrollableDayCount) failing days are in the past.")
+                lines.append("  This batch is a balance SAMPLE, not the publishing window. Re-run")
+                lines.append("  over the live window to get an actionable worklist.")
+            } else {
+                if unrollableDayCount > 0 {
+                    lines.append("  (\(unrollableDayCount) further failing day(s) are in the past and omitted.)")
+                }
+                lines.append("  Paste into apex-publish (with --overwrite), then UPDATE rerolls.txt")
+            lines.append("  to match — the register and the server must not disagree:")
+                lines.append("    \(arguments)")
+            }
+
+            if let worst = lockClusters.first, worst.days >= 3 {
                 lines.append("")
-                lines.append("── SUGGESTED RE-ROLLS ──")
-                for hint in rerolls { lines.append("  ↻ \(hint)") }
+                lines.append("  ⚠️ \(worst.days) lock failures share the same categories: \(worst.categories)")
+                lines.append("     That is a pattern, not a draw. Look at it before re-rolling.")
             }
         }
         return lines.joined(separator: "\n")
@@ -192,10 +398,28 @@ public nonisolated enum BatchValidator {
         public static let spreadMaxGapBP = 100            // 1.0%
         public static let minDiverseCategories = 4
         public static let topPercent = 1
-        /// Pass 6: 60 → 58. The old limit was exactly the value the
-        /// library was hitting, so the gate could never warn before the
-        /// problem arrived. Measured max over 180 days is 54%.
-        public static let maxOptionWinRatePercent = 58
+        /// A backstop, not the drift detector.
+        ///
+        /// History: 60 → 58 in pass 6, on the grounds that the old limit
+        /// was exactly the value the library was hitting so the gate
+        /// could never warn before the problem arrived. That reasoning
+        /// was right and the number was wrong — it came from a Python
+        /// estimate of a 54% maximum. Swift over 540 days says the true
+        /// maximum is 57% (`suspensionStiff`), ±2 at that sample size.
+        /// So 58 reproduced exactly the fault it was meant to fix: one
+        /// point of headroom, firing on sampling luck rather than on
+        /// change. A 90-day window duly reported the same option at 62%
+        /// and cried DOMINANT.
+        ///
+        /// 65 is roughly three standard errors above the measured
+        /// maximum: it cannot be reached by noise, and a change that
+        /// does reach it is real. Detecting ordinary drift is the job of
+        /// `testOptionWinRatesHaveNotDrifted`, which pins every option's
+        /// 540-day rate and fails on any move over 8 points. That is a
+        /// far better instrument than one ceiling, because it watches
+        /// all 24 options in both directions instead of only the top one
+        /// in one direction.
+        public static let maxOptionWinRatePercent = 65
         /// Pass 6, new: an option appearing in fewer than this share of
         /// top-1% setups is functionally dead. Measured minimum over
         /// 180 days is 16.3%.
@@ -206,7 +430,18 @@ public nonisolated enum BatchValidator {
         /// Pass 6, new: the set-and-forget ceiling. Was 88% before the
         /// pass, 63.6% after.
         public static let staticExploitMaxPercentile = 70
-        /// Locked-category allowance, higher on regulated days.
+        /// A category counts as decided when its modal option holds at
+        /// least this share of the top-1% slice.
+        ///
+        /// 95, not 100. Over 180 days the count of categories at >=95%
+        /// and the count at exactly 100% differ by only about a third
+        /// (69 days vs 45 with two or more), so this is not a loosening
+        /// — it is the same measurement taken where it means something.
+        /// Going lower gets steep fast: at >=85% almost every day has
+        /// two decided categories, which is a description of the game
+        /// rather than a fault in it.
+        public static let modalShareLockPercent = 95
+        /// Decided-category allowance, higher on regulated days.
         public static let maxLockedCategories = 1
         public static let maxLockedCategoriesRegulated = 2
     }
@@ -233,19 +468,38 @@ public nonisolated enum BatchValidator {
         let spreadOK = gapBP <= Thresholds.spreadMaxGapBP
 
         // 2 & 3. Top-1% option usage per category.
+        //
+        // COUNTS, not sets. Criterion 2 only needs to know whether a
+        // second option exists, but criterion 3 needs to know how much
+        // of the slice the winner holds, and a Set throws exactly that
+        // away.
         let top = outcome.top(percent: Thresholds.topPercent)
-        var optionsUsed: [EngineeringCategoryID: Set<EngineeringOptionID>] = [:]
+        var counts: [EngineeringCategoryID: [EngineeringOptionID: Int]] = [:]
         for evaluated in top {
             for (category, option) in evaluated.setup.selectedOptions {
-                optionsUsed[category, default: []].insert(option)
+                counts[category, default: [:]][option, default: 0] += 1
             }
         }
-        let diverseCount = optionsUsed.values.filter { $0.count >= 2 }.count
+        let diverseCount = counts.values.filter { $0.count >= 2 }.count
         let diversityOK = diverseCount >= Thresholds.minDiverseCategories
 
         var locked: [EngineeringCategoryID: EngineeringOptionID] = [:]
-        for (category, options) in optionsUsed where options.count == 1 {
-            locked[category] = options.first!
+        var modalShare: [EngineeringCategoryID: Int] = [:]
+        let sliceSize = max(top.count, 1)
+        for (category, byOption) in counts {
+            // Deterministic mode: highest count, ties broken by the
+            // lower rawValue. Dictionary iteration order is not stable
+            // across runs, so an unbroken tie would make the report
+            // non-reproducible — which is exactly what this package
+            // exists to avoid.
+            guard let modal = byOption.max(by: {
+                $0.value == $1.value ? $0.key.rawValue > $1.key.rawValue : $0.value < $1.value
+            }) else { continue }
+            let share = modal.value * 100 / sliceSize
+            modalShare[category] = share
+            if share >= Thresholds.modalShareLockPercent {
+                locked[category] = modal.key
+            }
         }
         let lockAllowance = challenge.bannedOption == nil
             ? Thresholds.maxLockedCategories
@@ -265,6 +519,7 @@ public nonisolated enum BatchValidator {
             diverseCategoryCount: diverseCount,
             diversityOK: diversityOK,
             lockedCategories: locked,
+            modalSharePercent: modalShare,
             noLockOK: noLockOK
         )
     }
@@ -280,10 +535,26 @@ public nonisolated enum BatchValidator {
     ///     decisions — at n=30 an option's win rate carries roughly ±9
     ///     percentage points of sampling noise, which is more than the
     ///     distance between "healthy" and "dominant".
+    ///   - nonces: dayNumber → nonce, for days that have already been
+    ///     re-rolled. Without this the gate keeps re-generating the
+    ///     canonical draw of a day you replaced weeks ago, so the same
+    ///     day fails forever and the worklist never shrinks. Keep the
+    ///     map in `rerolls.txt` next to apex-publish, which reads the
+    ///     same file — one record, two consumers.
+    ///   - publishableFrom: the first day number that can still be
+    ///     re-rolled, normally today. Failing days before it are still
+    ///     reported but are kept out of the paste-ready command. Pass
+    ///     nil only when the whole range is in the future.
+    ///   - evaluateBatchCriteria: false for a run whose only job is the
+    ///     per-day worklist. Suppresses criteria 4-8 entirely rather
+    ///     than reporting them from a sample too small to support them.
     ///   - checkStaticExploit: criterion 8. Adds no solves, but does walk
     ///     every setup of every day to accumulate per-setup percentiles.
     public static func run(
         dayNumbers: ClosedRange<Int> = 1...30,
+        nonces: [Int: Int] = [:],
+        publishableFrom: Int? = nil,
+        evaluateBatchCriteria: Bool = true,
         checkStaticExploit: Bool = true
     ) -> BatchReport {
         var reports: [ChallengeReport] = []
@@ -296,7 +567,15 @@ public nonisolated enum BatchValidator {
         var exploitLegalDays: [Selections: Int] = [:]
 
         for day in dayNumbers {
-            let challenge = ChallengeGenerator.generate(dayNumber: day, dateKey: "day-\(day)")
+            // Real dateKeys, not "day-49": the report's re-roll worklist
+            // is meant to be pasted into apex-publish, which is keyed by
+            // date. Nonce 0 is the canonical draw, so this is identical
+            // to the old behaviour for every day that hasn't been rolled.
+            let challenge = ChallengeGenerator.generate(
+                dayNumber: day,
+                dateKey: ChallengeSeed.dateKey(forDayNumber: day),
+                nonce: nonces[day] ?? 0
+            )
             // The one and only solve for this day.
             let outcome = ExhaustiveSolver.solve(challenge: challenge)
             reports.append(report(for: challenge, outcome: outcome))
@@ -337,7 +616,10 @@ public nonisolated enum BatchValidator {
             reports: reports,
             optionPresence: presence,
             topSetupTotal: topTotal,
-            staticExploit: exploit
+            staticExploit: exploit,
+            publishableFrom: publishableFrom,
+            evaluateBatchCriteria: evaluateBatchCriteria,
+            appliedNonces: nonces
         )
     }
 
@@ -387,17 +669,31 @@ public nonisolated enum BatchValidator {
         reports: [ChallengeReport],
         optionPresence: [EngineeringOptionID: Int],
         topSetupTotal: Int,
-        staticExploit: StaticExploitReport? = nil
+        staticExploit: StaticExploitReport? = nil,
+        publishableFrom: Int? = nil,
+        evaluateBatchCriteria: Bool = true,
+        appliedNonces: [Int: Int] = [:]
     ) -> BatchReport {
         let total = reports.count
-        var failures: [String] = []
+        // Two buckets, not one. See GateResult.
+        var balanceFailures: [String] = []
+        var dayFailures: [String] = []
 
         for report in reports where !report.passed {
             var problems: [String] = []
             if !report.spreadOK { problems.append("spread \(report.spreadGapBP)bp > \(Thresholds.spreadMaxGapBP)bp") }
             if !report.diversityOK { problems.append("only \(report.diverseCategoryCount) diverse categories") }
-            if !report.noLockOK { problems.append("locked: \(report.lockedCategories.keys.map(\.rawValue).sorted().joined(separator: ","))") }
-            failures.append("\(report.challenge.dateKey): \(problems.joined(separator: "; "))")
+            if !report.noLockOK { problems.append("decided: \(report.lockedDescription)") }
+            dayFailures.append("\(report.challenge.dateKey): \(problems.joined(separator: "; "))")
+        }
+
+        // Criteria 4-8 below append to balanceFailures only when this
+        // run is large enough to mean anything. The statistics are still
+        // computed and returned — they are useful to look at — but they
+        // do not become verdicts.
+        func recordBalanceFailure(_ message: String) {
+            guard evaluateBatchCriteria else { return }
+            balanceFailures.append(message)
         }
 
         // 4. Option win rates.
@@ -410,7 +706,7 @@ public nonisolated enum BatchValidator {
         let winRates = winCounts.mapValues { $0 * 100 / max(total, 1) }
         for (option, rate) in winRates.sorted(by: { $0.key.rawValue < $1.key.rawValue })
         where rate > Thresholds.maxOptionWinRatePercent {
-            failures.append("dominant option: \(option.rawValue) wins \(rate)% of challenges (max \(Thresholds.maxOptionWinRatePercent)%)")
+            recordBalanceFailure("dominant option: \(option.rawValue) wins \(rate)% of challenges (max \(Thresholds.maxOptionWinRatePercent)%)")
         }
 
         // 4b. Near-dead options, from the presence counted during the run.
@@ -422,7 +718,7 @@ public nonisolated enum BatchValidator {
         }
         for option in EngineeringOptionID.allCases.sorted(by: { $0.rawValue < $1.rawValue })
         where (topShare[option] ?? 0) < Thresholds.minTopSharePercent {
-            failures.append("near-dead option: \(option.rawValue) appears in \(topShare[option] ?? 0)% of top-1% setups (min \(Thresholds.minTopSharePercent)%)")
+            recordBalanceFailure("near-dead option: \(option.rawValue) appears in \(topShare[option] ?? 0)% of top-1% setups (min \(Thresholds.minTopSharePercent)%)")
         }
 
         // 5. Winning identities.
@@ -431,7 +727,7 @@ public nonisolated enum BatchValidator {
             identities[report.winnerIdentity.displayText, default: 0] += 1
         }
         if identities.count < Thresholds.minWinningIdentities {
-            failures.append("only \(identities.count) winning identities (min \(Thresholds.minWinningIdentities))")
+            recordBalanceFailure("only \(identities.count) winning identities (min \(Thresholds.minWinningIdentities))")
         }
 
         // 6. Weather sensitivity.
@@ -448,7 +744,7 @@ public nonisolated enum BatchValidator {
             if allOptions.count >= 2 { sensitiveCategories.append(category) }
         }
         if sensitiveCategories.isEmpty {
-            failures.append("no weather-sensitive category (winning options never vary by weather)")
+            recordBalanceFailure("no weather-sensitive category (winning options never vary by weather)")
         }
 
         // 7. Cheap-option presence.
@@ -467,12 +763,12 @@ public nonisolated enum BatchValidator {
         }.count
         let cheapPresencePercent = cheapPresenceCount * 100 / max(total, 1)
         if cheapPresencePercent < Thresholds.cheapPresenceMinPercent {
-            failures.append("cheap-option presence \(cheapPresencePercent)% < \(Thresholds.cheapPresenceMinPercent)% (winners never use budget picks)")
+            recordBalanceFailure("cheap-option presence \(cheapPresencePercent)% < \(Thresholds.cheapPresenceMinPercent)% (winners never use budget picks)")
         }
 
         // 8. The set-and-forget car.
         if let staticExploit, staticExploit.meanPercentile > Thresholds.staticExploitMaxPercentile {
-            failures.append(
+            recordBalanceFailure(
                 "reusable car: one fixed setup beats \(staticExploit.meanPercentile)% of the field "
                     + "every day (max \(Thresholds.staticExploitMaxPercentile)%) — "
                     + CanonicalSetupEncoder.encode(staticExploit.setup)
@@ -487,7 +783,10 @@ public nonisolated enum BatchValidator {
             weatherSensitiveCategories: sensitiveCategories.sorted(),
             cheapPresencePercent: cheapPresencePercent,
             staticExploit: staticExploit,
-            gate: GateResult(failures: failures)
+            publishableFromDayNumber: publishableFrom,
+            appliedNonces: appliedNonces,
+            batchCriteriaEvaluated: evaluateBatchCriteria,
+            gate: GateResult(balanceFailures: balanceFailures, dayFailures: dayFailures)
         )
     }
 }

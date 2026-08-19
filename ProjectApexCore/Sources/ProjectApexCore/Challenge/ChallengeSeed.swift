@@ -77,6 +77,43 @@ public nonisolated enum ChallengeSeed {
         return days - epochDays + 1
     }
 
+    /// Civil date for a count of days since 1970-01-01 (Hinnant's
+    /// civil_from_days) — the exact inverse of `daysSinceUnixEpoch`.
+    public static func civilFromDays(_ days: Int) -> (year: Int, month: Int, day: Int) {
+        let z = days + 719_468
+        let era = (z >= 0 ? z : z - 146_096) / 146_097
+        let doe = z - era * 146_097
+        let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365
+        let y = yoe + era * 400
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+        let mp = (5 * doy + 2) / 153
+        let d = doy - (153 * mp + 2) / 5 + 1
+        let m = mp < 10 ? mp + 3 : mp - 9
+        return (m <= 2 ? y + 1 : y, m, d)
+    }
+
+    /// dateKey for a day number. The inverse of
+    /// `dayNumber(fromDateKey:)`, so `dayNumber(fromDateKey: dateKey(forDayNumber: n)) == n`.
+    ///
+    /// Added in pass 6 because the validation batch labelled its days
+    /// "day-49" while everything downstream — publishing, re-rolling,
+    /// Firestore — is keyed by date. A worklist you cannot act on
+    /// without doing calendar arithmetic in your head is not a worklist.
+    /// apex-publish carried its own copy of civil_from_days; this is now
+    /// the single implementation.
+    public static func dateKey(forDayNumber dayNumber: Int) -> String {
+        guard let epoch = parse(dateKey: epochDateKey) else { return epochDateKey }
+        let epochDays = daysSinceUnixEpoch(year: epoch.year, month: epoch.month, day: epoch.day)
+        let c = civilFromDays(epochDays + dayNumber - 1)
+        // Foundation-free zero padding.
+        func pad(_ value: Int, _ width: Int) -> String {
+            var text = String(value)
+            while text.count < width { text = "0" + text }
+            return text
+        }
+        return "\(pad(c.year, 4))-\(pad(c.month, 2))-\(pad(c.day, 2))"
+    }
+
     /// Root RNG for a given day.
     ///
     /// `nonce` re-rolls a day that failed the validation gate. Nonce 0

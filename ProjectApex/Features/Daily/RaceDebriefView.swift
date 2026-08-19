@@ -40,8 +40,13 @@ struct RaceDebriefView: View {
                 experimentSection
             }
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.Color.ink)
         .navigationTitle("Engineering Debrief")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.Color.ink, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             if let text = viewModel.shareText {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -74,23 +79,21 @@ struct RaceDebriefView: View {
 
     private func headerSection(_ result: SimulationResult) -> some View {
         Section {
-            VStack(spacing: 4) {
-                Text("ASSIGNMENT COMPLETE")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .kerning(1.5)
+            VStack(spacing: 5) {
+                Text("Assignment complete").apexLabel(Theme.Color.signal)
                 Text(FixedPoint.formatLapTime(millis: result.averageLapTimeMillis))
-                    .font(.system(size: 40, weight: .bold, design: .monospaced))
+                    .apexData(40, weight: .bold)
                 Text("Average · Fastest \(FixedPoint.formatLapTime(millis: result.fastestLapTimeMillis))")
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .apexData(12, weight: .medium, color: Theme.Color.muted)
                 Text(result.setupIdentity.displayText)
-                    .font(.subheadline.weight(.medium))
-                    .padding(.top, 6)
+                    .apexDisplay(17)
+                    .padding(.top, 8)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.vertical, 10)
         }
+        .listRowBackground(Theme.Color.panel)
+        .listRowSeparator(.hidden)
     }
 
     // MARK: - Global standing
@@ -101,18 +104,25 @@ struct RaceDebriefView: View {
         case .idle:
             EmptyView()
         case .loading:
-            Section("Global Standing") {
-                HStack { ProgressView(); Text("Checking the paddock…").foregroundStyle(.secondary) }
-                    .font(.subheadline)
-            }
+            Section {
+                HStack(spacing: 10) {
+                    ProgressView().tint(Theme.Color.signal)
+                    Text("Checking the paddock").apexLabel(Theme.Color.muted)
+                }
+            } header: { Text("Global standing").apexLabel(Theme.Color.muted) }
+                .listRowBackground(Theme.Color.panel)
         case .failed(let reason):
-            Section("Global Standing") {
+            Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Button {
                         Task { await viewModel.refreshStanding() }
                     } label: {
-                        Label("Couldn't reach the leaderboard — tap to retry", systemImage: "arrow.clockwise")
-                            .font(.subheadline)
+                        HStack(spacing: 7) {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Couldn't reach the leaderboard — tap to retry")
+                        }
+                        .font(Theme.Font.body(13))
+                        .foregroundStyle(Theme.Color.signal)
                     }
                     // Never shipped to players — but during development
                     // the difference between a rules rejection and a
@@ -120,36 +130,36 @@ struct RaceDebriefView: View {
                     // friendly sentence above erases it.
                     #if DEBUG
                     Text(reason)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(Theme.Font.body(10.5, weight: .regular))
+                        .foregroundStyle(Theme.Color.faint)
                         .textSelection(.enabled)
                     #endif
                 }
-            }
+            } header: { Text("Global standing").apexLabel(Theme.Color.muted) }
+                .listRowBackground(Theme.Color.panel)
         case .loaded(let standing):
-            Section("Global Standing") {
+            Section {
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 3) {
                         if standing.totalEntries == 1 {
-                            Text("Rank #1")
-                                .font(.title3.weight(.bold))
+                            Text("Rank #1").apexDisplay(22)
                             Text("Only engineer today — set the benchmark")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(Theme.Font.body(11.5, weight: .regular))
+                                .foregroundStyle(Theme.Color.muted)
                         } else if standing.totalEntries < 10 {
                             Text("Rank #\(standing.rank) of \(standing.totalEntries)")
-                                .font(.title3.weight(.bold))
+                                .apexDisplay(22)
                             Text("Early field"
                                  + (standing.tieCount > 1 ? " · \(standing.tieCount) tied" : ""))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(Theme.Font.body(11.5, weight: .regular))
+                                .foregroundStyle(Theme.Color.muted)
                         } else {
                             Text("Top \(standing.topPercent)% of engineers")
-                                .font(.title3.weight(.bold))
+                                .apexDisplay(22)
                             Text("Rank #\(standing.rank) of \(standing.totalEntries)"
                                  + (standing.tieCount > 1 ? " · \(standing.tieCount) tied" : ""))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(Theme.Font.body(11.5, weight: .regular))
+                                .foregroundStyle(Theme.Color.muted)
                         }
                     }
                     Spacer()
@@ -162,39 +172,45 @@ struct RaceDebriefView: View {
                                 service: service
                             )
                         } label: {
-                            Text("Full board")
-                                .font(.subheadline)
+                            Text("Full board").apexLabel(Theme.Color.signal)
                         }
                         .fixedSize()
                     }
                 }
-            }
+            } header: { Text("Global standing").apexLabel(Theme.Color.muted) }
+                .listRowBackground(Theme.Color.panel)
         }
     }
 
     // MARK: - Laps
 
     private func lapsSection(_ result: SimulationResult) -> some View {
-        Section("Laps") {
+        Section {
             ForEach(result.lapResults, id: \.lapNumber) { lap in
-                HStack {
+                let fastest = lap.timeMillis == result.fastestLapTimeMillis
+                HStack(spacing: 8) {
                     Text("Lap \(lap.lapNumber)")
+                        .font(Theme.Font.body(14))
+                        .foregroundStyle(Theme.Color.cream)
                     Text(lapRole(lap.lapNumber))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Theme.Font.body(11, weight: .regular))
+                        .foregroundStyle(Theme.Color.faint)
                     Spacer()
                     Text(FixedPoint.formatLapTime(millis: lap.timeMillis))
-                        .monospacedDigit()
-                        .fontWeight(lap.timeMillis == result.fastestLapTimeMillis ? .bold : .regular)
+                        .apexData(14, weight: fastest ? .bold : .regular,
+                                  color: fastest ? Theme.Color.cream : Theme.Color.muted)
                 }
+                .padding(.vertical, 2)
             }
-        }
+            .listRowBackground(Theme.Color.panel)
+            .listRowSeparatorTint(Theme.Color.rule)
+        } header: { Text("Laps").apexLabel(Theme.Color.muted) }
     }
 
     // MARK: - Vehicle profile (circuit-relative)
 
     private var profileSection: some View {
-        Section("What Decided Today") {
+        Section {
             let profile = VehicleProfile.from(
                 setup: PlayerSetup(
                     challengeId: viewModel.challenge.id,
@@ -202,93 +218,77 @@ struct RaceDebriefView: View {
                 ),
                 circuit: viewModel.challenge.circuit
             )
-            ForEach(profile.axes, id: \.name) { axis in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(axis.name)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        if axis.isInvertedStat {
-                            Text("lower is better")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                        Spacer()
-                        if let demand = axis.demandText {
-                            Text(demand)
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    GeometryReader { proxy in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(Color.secondary.opacity(0.15))
-                            Capsule()
-                                .fill(Color.accentColor.opacity(0.75))
-                                .frame(width: max(6, proxy.size.width * axis.fraction))
-                        }
-                    }
-                    .frame(height: 6)
+            VStack(alignment: .leading, spacing: 12) {
+                // Same component as the Engineering Bay, deliberately.
+                // This screen tells you how the read you made over there
+                // turned out; if the two charts look different you
+                // cannot carry anything from one to the other.
+                ForEach(Array(profile.axes.enumerated()), id: \.element.name) { rank, axis in
+                    DemandAxisRow(axis: axis, rank: rank, barHeight: 6)
                 }
-                .padding(.vertical, 2)
+                Text(DemandAxisRow.explainer)
+                    .font(Theme.Font.body(10.5, weight: .regular))
+                    .foregroundStyle(Theme.Color.faint)
             }
-        }
+            .padding(.vertical, 6)
+            .listRowBackground(Theme.Color.panel)
+            .listRowSeparator(.hidden)
+        } header: { Text("What decided today").apexLabel(Theme.Color.muted) }
     }
 
     // MARK: - Engineering efficiency
 
     @ViewBuilder
     private func efficiencySection(_ result: SimulationResult) -> some View {
-        Section("Engineering Efficiency") {
+        Section {
             if let analysis = viewModel.analysis {
                 HStack {
-                    Text(theoreticalBestLabel(legalCount: analysis.legalCount))
-                        .foregroundStyle(.secondary)
-                    Spacer()
+                    Text(theoreticalBestLabel(legalCount: analysis.legalCount)).apexLabel()
+                    Spacer(minLength: 10)
                     Text(FixedPoint.formatLapTime(millis: analysis.minPossibleAverageLapMillis))
-                        .monospacedDigit()
+                        .apexData(14, color: Theme.Color.muted)
                 }
                 HStack {
-                    Text("Your gap")
-                        .foregroundStyle(.secondary)
+                    Text("Your gap").apexLabel()
                     Spacer()
                     Text(gapText(analysis.gapToOptimalMillis))
-                        .monospacedDigit()
-                        .foregroundStyle(analysis.gapToOptimalMillis == 0 ? .green : .primary)
-                        .fontWeight(.semibold)
+                        .apexData(16, weight: .bold,
+                                  color: analysis.gapToOptimalMillis == 0
+                                      ? Theme.Color.gain : Theme.Color.cream)
                 }
                 HStack {
-                    Text("Possible setups beaten")
-                        .foregroundStyle(.secondary)
+                    Text("Possible setups beaten").apexLabel()
                     Spacer()
-                    Text("\(analysis.beatPercent)%")
-                        .monospacedDigit()
-                        .fontWeight(.semibold)
+                    Text("\(analysis.beatPercent)%").apexData(16, weight: .bold)
                 }
 
                 if viewModel.isRevealAllowed() {
-                    DisclosureGroup("Reveal the optimal setup", isExpanded: $revealOptimal) {
+                    DisclosureGroup(isExpanded: $revealOptimal) {
                         ForEach(EngineeringCategoryID.allCases.sorted(), id: \.self) { category in
                             if let optionID = viewModel.analysis?.optimalSetup.selectedOptions[category] {
                                 optimalRow(category: category, optionID: optionID)
                             }
                         }
+                    } label: {
+                        Text("Reveal the optimal setup").apexLabel(Theme.Color.signal)
                     }
+                    .tint(Theme.Color.cream)
                 } else {
-                    Label("Optimal setup reveals when the day closes",
-                          systemImage: "lock.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Image(systemName: "lock.fill")
+                        Text("Optimal setup reveals when the day closes")
+                    }
+                    .apexLabel(Theme.Color.faint)
                 }
             } else {
-                HStack {
-                    ProgressView()
-                    Text("Analyzing every legal setup…")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    ProgressView().tint(Theme.Color.signal)
+                    Text("Analyzing every legal setup").apexLabel(Theme.Color.muted)
                 }
             }
-        }
+        } header: { Text("Engineering efficiency").apexLabel(Theme.Color.muted) }
+            .listRowBackground(Theme.Color.panel)
+            .listRowSeparatorTint(Theme.Color.rule)
     }
 
     /// The size of the space the optimum was found in. A technical
@@ -306,17 +306,16 @@ struct RaceDebriefView: View {
     private func optimalRow(category: EngineeringCategoryID, optionID: EngineeringOptionID) -> some View {
         let option = OptionLibrary.option(optionID)
         let matched = viewModel.selectedOption(in: category) == optionID
-        return HStack {
-            Text(category.displayName)
-                .foregroundStyle(.secondary)
-            Spacer()
+        return HStack(spacing: 10) {
+            Text(category.displayName).apexLabel()
+            Spacer(minLength: 10)
             Text(option.displayName)
-                .fontWeight(matched ? .semibold : .regular)
+                .font(Theme.Font.body(13, weight: matched ? .bold : .regular))
+                .foregroundStyle(matched ? Theme.Color.cream : Theme.Color.muted)
             Image(systemName: matched ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(matched ? .green : Color.secondary.opacity(0.4))
-                .imageScale(.small)
+                .font(.system(size: 12))
+                .foregroundStyle(matched ? Theme.Color.gain : Theme.Color.faint)
         }
-        .font(.subheadline)
     }
 
     // MARK: - Sectors (bars + quality tiers)
@@ -336,24 +335,22 @@ struct RaceDebriefView: View {
                 let scale = max(deltas.map { abs($0) }.max() ?? 1, 1)
                 let worst = deltas.indices.max(by: { deltas[$0] < deltas[$1] })
                 ForEach(Array(deltas.enumerated()), id: \.offset) { index, millis in
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(spacing: 8) {
                             Text("Sector \(index + 1)")
+                                .font(Theme.Font.body(14))
+                                .foregroundStyle(Theme.Color.cream)
                             if index == worst, millis > 0 {
-                                Text("biggest loss")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.orange)
+                                Text("biggest loss").apexLabel(Theme.Color.notice)
                             }
-                            Spacer()
+                            Spacer(minLength: 8)
                             Text(tierLabel(delta: millis))
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(tierColor(delta: millis))
+                                .apexLabel(tierColor(delta: millis))
                             // Only when it adds something the label didn't:
                             // "Optimal optimal" was saying it twice.
                             if millis != 0 {
                                 Text(signedSeconds(millis))
-                                    .monospacedDigit()
-                                    .foregroundStyle(tierColor(delta: millis))
+                                    .apexData(15, weight: .bold, color: tierColor(delta: millis))
                             }
                         }
                         // Diverging from a centre line: quicker-than-optimal
@@ -363,11 +360,11 @@ struct RaceDebriefView: View {
                             let frac = Double(abs(millis)) / Double(scale)
                             ZStack {
                                 Rectangle()
-                                    .fill(Color.secondary.opacity(0.25))
+                                    .fill(Theme.Color.cream.opacity(0.22))
                                     .frame(width: 1)
                                 if millis != 0 {
-                                    Capsule()
-                                        .fill(tierColor(delta: millis).opacity(0.8))
+                                    Rectangle()
+                                        .fill(tierColor(delta: millis))
                                         .frame(width: max(3, half * frac))
                                         .offset(x: millis > 0
                                                 ? half * frac / 2
@@ -378,25 +375,27 @@ struct RaceDebriefView: View {
                         }
                         .frame(height: 6)
                     }
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 3)
                 }
             } else {
-                HStack {
-                    ProgressView()
-                    Text("Comparing your sectors to the optimal car…")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    ProgressView().tint(Theme.Color.signal)
+                    Text("Comparing your sectors to the optimal car").apexLabel(Theme.Color.muted)
                 }
             }
         } header: {
-            Text("Where the lap went")
+            Text("Where the lap went").apexLabel(Theme.Color.muted)
         } footer: {
             if viewModel.sectorsLostToOptimal != nil {
                 // Says out loud that the three numbers add up to the gap
                 // above. They do, and inviting the check is the point.
                 Text("Per lap, against the optimal setup. These add up to your gap.")
+                    .font(Theme.Font.body(10.5, weight: .regular))
+                    .foregroundStyle(Theme.Color.faint)
             }
         }
+        .listRowBackground(Theme.Color.panel)
+        .listRowSeparatorTint(Theme.Color.rule)
     }
 
     /// Absolute milliseconds against perfect, per lap — so the wording
@@ -415,10 +414,10 @@ struct RaceDebriefView: View {
 
     private func tierColor(delta: Int) -> Color {
         switch delta {
-        case ..<80: return .green
-        case ..<350: return .primary
-        case ..<850: return .orange
-        default: return .red
+        case ..<80: return Theme.Color.gain
+        case ..<350: return Theme.Color.cream
+        case ..<850: return Theme.Color.notice
+        default: return Theme.Color.signal
         }
     }
 
@@ -431,26 +430,29 @@ struct RaceDebriefView: View {
     @ViewBuilder
     private var reportSection: some View {
         if let feedback = viewModel.feedback {
-            Section("Chief Engineer's Report") {
-                VStack(alignment: .leading, spacing: 10) {
+            Section {
+                VStack(alignment: .leading, spacing: 11) {
                     // When the Next Test card is showing, the prose drops
                     // its recommendation sentence — otherwise the same
                     // change, funding source and time saving get stated
                     // twice, one line apart.
                     Text(viewModel.advice == nil ? feedback.reportText : feedback.observationText)
-                        .font(.subheadline)
+                        .font(Theme.Font.body(14, weight: .regular))
+                        .foregroundStyle(Theme.Color.cream)
                     Text("— Chief Engineer")
-                        .font(.caption.italic())
-                        .foregroundStyle(.secondary)
+                        .font(Theme.Font.body(11, weight: .regular).italic())
+                        .foregroundStyle(Theme.Color.faint)
                         .frame(maxWidth: .infinity, alignment: .trailing)
 
                     if let advice = viewModel.advice {
-                        Divider()
+                        Rectangle().fill(Theme.Color.rule).frame(height: 1)
                         nextTestLink(advice)
                     }
                 }
-                .padding(.vertical, 4)
-            }
+                .padding(.vertical, 5)
+            } header: { Text("Chief engineer's report").apexLabel(Theme.Color.muted) }
+                .listRowBackground(Theme.Color.panel)
+                .listRowSeparator(.hidden)
         }
     }
 
@@ -466,20 +468,20 @@ struct RaceDebriefView: View {
         } label: {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "flask.fill")
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Theme.Color.signal)
                     .padding(.top, 2)
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(nextTestTitle(advice))
-                        .font(.subheadline.weight(.medium))
+                        .font(Theme.Font.body(14))
+                        .foregroundStyle(Theme.Color.cream)
                     if let funding = advice.funding {
                         Text("Pay for it: \(funding.category.displayName) → "
                              + OptionLibrary.option(funding.to).displayName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(Theme.Font.body(11.5, weight: .regular))
+                            .foregroundStyle(Theme.Color.muted)
                     }
                     Text("Worth about \(secondsText(advice.gainMillis)) here")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.green)
+                        .apexData(11.5, color: Theme.Color.gain)
                 }
             }
             .padding(.vertical, 2)
@@ -500,18 +502,18 @@ struct RaceDebriefView: View {
             } label: {
                 HStack(spacing: 14) {
                     Image(systemName: "flask")
-                        .font(.title3)
-                        .foregroundStyle(Color.accentColor)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Experiment")
-                            .font(.headline)
+                        .font(.system(size: 20))
+                        .foregroundStyle(Theme.Color.signal)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Experiment").apexDisplay(17)
                         Text("Replay today's assignment with another setup. Your submitted result will never change.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(Theme.Font.body(11.5, weight: .regular))
+                            .foregroundStyle(Theme.Color.muted)
                     }
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, 7)
             }
+            .listRowBackground(Theme.Color.panel)
         }
     }
 

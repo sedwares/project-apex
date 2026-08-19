@@ -4,15 +4,57 @@
   PrivacyInfo.xcprivacy
   ProjectApex
 
-  Required by App Store Connect. The app target was missing one
-  entirely, which is a submission blocker: UserDefaults is a
-  required-reason API and every app that touches it must declare why.
+  ── RECONCILED 2026-08-19 against Google's published disclosures ──
+  https://firebase.google.com/docs/ios/app-store-data-collection
+  https://support.google.com/analytics/answer/10285841
 
-  Add this file to the ProjectApex target (it sits inside the
-  synchronized folder, so Xcode picks it up automatically) and verify
-  the declared data types against whichever Firebase products actually
-  ship in the build — Firebase's own SDKs carry their own manifests,
-  but the app is responsible for describing what it collects.
+  FIREBASE PRODUCTS ACTUALLY LINKED (from project.pbxproj — four, not
+  "whatever Firebase installs"):
+
+      FirebaseAuth         FirebaseCrashlytics
+      FirebaseFirestore    FirebaseAnalytics
+
+  Plus the transitive targets SPM pulls in: FirebaseCore (no data),
+  FirebaseInstallations, FirebaseSessions, GoogleDataTransport,
+  GoogleUtilities, GoogleAppMeasurement.
+
+  NOT linked, so deliberately NOT declared: Functions (would collect
+  caller IP), Messaging (APNs token), Performance, RemoteConfig,
+  Storage, AppCheck, DynamicLinks, InAppMessaging. If any of those is
+  ever added, this file has to change.
+
+  ── WHAT WAS WRONG BEFORE ─────────────────────────────────────────
+  Everything below was under-declared, which is the direction that
+  gets a submission rejected:
+
+    · GAMEPLAY CONTENT was missing entirely. The app's whole server
+      side — eight engineering selections, total cost, three lap times,
+      per-day results — is user gameplay content stored against an
+      identifier. It is the most substantive thing this app collects
+      and it was not declared at all.
+    · CRASH DATA was marked not-linked. CrashReporting.setUserID(uid)
+      ties every report to the anonymous engineer, by design.
+    · ANALYTICS was not declared at all.
+    · COARSE LOCATION was not declared. Google Analytics does not use
+      Location Services, but it does derive approximate location from
+      masked IP addresses — confirmed at the support.google.com link
+      above. Apple counts that as coarse location.
+    · PRODUCT INTERACTION is declared LINKED, not because Analytics
+      links it (its app-instance ID is separate from the auth uid) but
+      because Crashlytics and Analytics ship together, and Google's
+      docs state that combination collects "breadcrumb" logs of user
+      actions immediately before a crash — attached to a report that
+      carries our uid.
+
+  ── VERIFIED NOT COLLECTED ────────────────────────────────────────
+    · Auth display NAME. Google's docs say Auth collects a display
+      name "if the developer provides" one. FirebaseBootstrap never
+      calls createProfileChangeRequest — the callsign lives only in
+      the Firestore players document. No Name category.
+    · PURCHASE HISTORY. Analytics measures StoreKit events; there are
+      no in-app purchases in this app.
+    · ADVERTISING DATA / IDFA. AdSupport is not linked and there is no
+      ATT prompt.
 
   Reason codes used:
     CA92.1 — UserDefaults, access limited to data written by the app
@@ -41,9 +83,8 @@
 
     <key>NSPrivacyCollectedDataTypes</key>
     <array>
-        <!-- Anonymous Firebase Auth uid + generated ENG-XXXXXX callsign,
-             stored so a leaderboard row can belong to someone. Not
-             linked to a real identity and not used for tracking. -->
+        <!-- FirebaseAuth anonymous uid + the ENG-XXXXXX callsign stored
+             in players/{uid}. Linked: everything else hangs off it. -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeUserID</string>
@@ -57,11 +98,107 @@
             </array>
         </dict>
 
-        <!-- Crash diagnostics, if Crashlytics ships in the build.
-             DELETE this entry if it does not. -->
+        <!-- The daily submission: eight selections + total cost (sealed
+             until the day closes) and the lap times on the public
+             leaderboard. Apple's "Gameplay Content" is exactly this. -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeGameplayContent</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Crashlytics: stack traces, device and OS info, tagged with
+             the anonymous uid via setUserID. -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeCrashData</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Five Analytics events, plus Crashlytics breadcrumb logs of
+             the actions before a crash (collected because Analytics and
+             Crashlytics ship together). Linked, because breadcrumbs
+             ride on a uid-tagged crash report. -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeProductInteraction</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- The Analytics app-instance ID. Separate from the auth uid,
+             reset by Analytics.resetForDeletedAccount(). -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeDeviceID</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+            </array>
+        </dict>
+
+        <!-- Approximate location derived from the masked IP address.
+             Location Services is never requested; there is no
+             NSLocationWhenInUseUsageDescription in Info.plist and
+             there never should be. -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeCoarseLocation</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+            </array>
+        </dict>
+
+        <!-- FirebaseSessions: session grouping, time backgrounded,
+             network connection type. -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeOtherUsageData</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Firebase user agent (device, OS, bundle ID, platform) and
+             GoogleDataTransport's own SDK-performance metadata. -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
             <key>NSPrivacyCollectedDataTypeLinked</key>
             <false/>
             <key>NSPrivacyCollectedDataTypeTracking</key>

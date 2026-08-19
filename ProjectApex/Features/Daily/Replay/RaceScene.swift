@@ -42,7 +42,11 @@ final class RaceScene: SKScene {
     func configure(_ config: Config) { self.config = config }
 
     override func didMove(to view: SKView) {
-            backgroundColor = .black
+            // Theme.Color.ink. SpriteKit has no access to the SwiftUI
+            // palette, so these five constants are the one place the
+            // Livery colours are duplicated — keep them in step with
+            // Theme.swift by hand.
+            backgroundColor = SKColor(red: 0.043, green: 0.043, blue: 0.059, alpha: 1)
             scaleMode = .resizeFill
             guard !started, config != nil else { return }
             started = true
@@ -56,7 +60,7 @@ final class RaceScene: SKScene {
 
     private func buildTrack() {
         trackLine.path = loop.path()
-        trackLine.strokeColor = SKColor.gray.withAlphaComponent(0.35)
+        trackLine.strokeColor = SKColor(red: 0.957, green: 0.945, blue: 0.918, alpha: 0.16)
         trackLine.lineWidth = 10
         trackLine.lineCap = .round
         trackLine.lineJoin = .round
@@ -64,7 +68,7 @@ final class RaceScene: SKScene {
 
         // Start/finish.
         let sf = SKShapeNode(rectOf: CGSize(width: 4, height: 22))
-        sf.fillColor = .white
+        sf.fillColor = SKColor(red: 0.957, green: 0.945, blue: 0.918, alpha: 1)   // cream
         sf.strokeColor = .clear
         sf.zPosition = 5
         sf.position = loop.point(at: 0)
@@ -72,7 +76,12 @@ final class RaceScene: SKScene {
 
         // Sector gates. Three sectors means two interior boundaries —
         // at 1/3 and 2/3 — with start/finish closing the third.
-        let sectorColors: [SKColor] = [.systemBlue, .systemPurple]
+        // Cream and amber rather than blue and purple: sector markers
+        // are reference lines, not a third and fourth accent colour.
+        let sectorColors: [SKColor] = [
+            SKColor(red: 0.957, green: 0.945, blue: 0.918, alpha: 1),
+            SKColor(red: 1.000, green: 0.820, blue: 0.000, alpha: 1)
+        ]
         for (index, t) in [1.0 / 3.0, 2.0 / 3.0].enumerated() {
             let gate = SKShapeNode(rectOf: CGSize(width: 3, height: 16))
             gate.fillColor = sectorColors[index].withAlphaComponent(0.8)
@@ -90,8 +99,8 @@ final class RaceScene: SKScene {
         p.addLine(to: CGPoint(x: 7, y: -8))
         p.closeSubpath()
         car.path = p
-        car.fillColor = SKColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 1)
-        car.strokeColor = .white
+        car.fillColor = SKColor(red: 0.910, green: 0.067, blue: 0.176, alpha: 1)  // signal
+        car.strokeColor = SKColor(red: 0.957, green: 0.945, blue: 0.918, alpha: 1) // cream
         car.lineWidth = 1.5
         car.zPosition = 10
         car.position = loop.point(at: 0)

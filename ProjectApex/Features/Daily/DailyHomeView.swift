@@ -6,6 +6,14 @@
 //  unavailable / update states. Quick Race and Custom Test are always
 //  offered — they work offline by design.
 //
+//  Styled to the Livery direction (see Theme.swift). One structural
+//  change came with the restyle: the day, the circuit and the conditions
+//  moved into a single red header band, and the regulation became a
+//  full-bleed strip directly beneath it rather than the last row of the
+//  spec card. The regulation changes what you can build before you have
+//  built anything — on a regulated day it is the most important line on
+//  this screen, and as a spec row it read as a footnote.
+//
 
 import SwiftUI
 import ProjectApexCore
@@ -19,12 +27,12 @@ struct DailyHomeView: View {
             Group {
                 switch coordinator.state {
                 case .loading:
-                    VStack(spacing: 14) {
-                        ProgressView()
-                        Text("Preparing today's assignment…")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                    VStack(spacing: 16) {
+                        ProgressView().tint(Theme.Color.signal)
+                        Text("Preparing today's assignment")
+                            .apexLabel(Theme.Color.muted)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .ready(let viewModel):
                     briefContent(viewModel)
                 case .unavailable(let message):
@@ -43,8 +51,12 @@ struct DailyHomeView: View {
                     )
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.Color.ink)
             .navigationTitle("Project Apex")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Theme.Color.ink, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
@@ -89,186 +101,213 @@ struct DailyHomeView: View {
 
     // MARK: - Brief (challenge ready)
 
-    /// Scrolls: the brief already carries kicker, streak, spec card,
-    /// section strip and briefing prose before the reveal card is
-    /// added, which overflows a small phone. Spacers are gone —
-    /// inside a ScrollView they collapse to nothing.
+    /// Scrolls: the brief carries header, spec card, section strip and
+    /// briefing prose before the reveal card is added, which overflows a
+    /// small phone. No Spacers — inside a ScrollView they collapse to
+    /// nothing.
     private func briefContent(_ viewModel: DailyViewModel) -> some View {
         ScrollView {
-            VStack(spacing: 24) {
-                VStack(spacing: 8) {
-                    Text(dayKicker(viewModel))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .kerning(1.5)
-                    Text(circuitTitle(viewModel.challenge.circuit.name))
-                        .font(.title2.weight(.bold))
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.top, 16)
+            VStack(spacing: 0) {
+                header(viewModel)
 
-                if viewModel.streak > 0 {
-                    Label("\(viewModel.streak)-day streak", systemImage: "flame.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.orange)
+                if let banned = viewModel.bannedOption {
+                    let option = OptionLibrary.option(banned)
+                    Text("Regulation · no \(option.displayName) \(option.category.displayName)")
+                        .apexNotice(Theme.Color.cream)
                 }
 
-                VStack(spacing: 12) {
-                    briefRow(label: "Track type", value: viewModel.challenge.circuit.archetype.displayName)
-                    HStack {
-                        Text("Weather").foregroundStyle(.secondary)
-                        Spacer()
-                        Label(viewModel.challenge.weather.displayName,
-                              systemImage: weatherEffects(viewModel.challenge.weather).symbol)
-                            .fontWeight(.medium)
-                    }
-                    .font(.subheadline)
-                    Text(weatherEffects(viewModel.challenge.weather).effect)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    briefRow(label: "Sections", value: "\(viewModel.challenge.circuit.sections.count)")
-                    briefRow(label: "Budget", value: "\(viewModel.budget) credits")
-
-                    // The regulation belongs in the spec, not two taps
-                    // deep in the Bay. It changes what you can build
-                    // before you have built anything, and on a regulated
-                    // day it is the most important line on this screen.
-                    if let banned = viewModel.bannedOption {
-                        let option = OptionLibrary.option(banned)
-                        HStack(alignment: .firstTextBaseline) {
-                            Text("Regulation").foregroundStyle(.secondary)
-                            Spacer()
-                            Label {
-                                Text("No \(option.displayName) \(option.category.displayName)")
-                                    .fontWeight(.medium)
-                                    .multilineTextAlignment(.trailing)
-                            } icon: {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
-                            }
+                VStack(spacing: 22) {
+                    if viewModel.streak > 0 {
+                        HStack(spacing: 5) {
+                            Image(systemName: "flame.fill")
+                            Text("\(viewModel.streak)-day streak")
                         }
-                        .font(.subheadline)
+                        .apexLabel(Theme.Color.notice)
                     }
+
+                    specCard(viewModel)
+
+                    // Chief Engineer's pre-race briefing (deterministic, Core).
+                    Text(FeedbackEngine.preRaceBriefing(
+                        archetype: viewModel.challenge.circuit.archetype,
+                        weather: viewModel.challenge.weather,
+                        regulation: viewModel.bannedOption
+                    ))
+                    .font(Theme.Font.body(14, weight: .regular))
+                    .foregroundStyle(Theme.Color.muted)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 28)
+
+                    // The debrief's lock promises this; here it's delivered.
+                    if let reveal = coordinator.yesterdayReveal {
+                        yesterdayRevealCard(reveal)
+                    }
+
+                    actionButtons(viewModel)
                 }
-                .padding(20)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
-                .padding(.horizontal, 24)
-
-                // Chief Engineer's pre-race briefing (deterministic, Core).
-                sectionStrip(viewModel.challenge.circuit)
-
-                Text(FeedbackEngine.preRaceBriefing(
-                    archetype: viewModel.challenge.circuit.archetype,
-                    weather: viewModel.challenge.weather,
-                    regulation: viewModel.bannedOption
-                ))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-
-                // The debrief's lock promises this; here it's delivered.
-                if let reveal = coordinator.yesterdayReveal {
-                    yesterdayRevealCard(reveal)
-                }
-
-                actionButtons(viewModel)
+                .padding(.top, 22)
             }
         }
+    }
+
+    private func header(_ viewModel: DailyViewModel) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(dayKicker(viewModel))
+                .apexLabel(Theme.Color.cream.opacity(0.72))
+            Text(circuitTitle(viewModel.challenge.circuit.name))
+                .apexDisplay(31)
+            HStack(spacing: 16) {
+                metaItem(weatherEffects(viewModel.challenge.weather).symbol,
+                         viewModel.challenge.weather.displayName)
+                metaItem(nil, "\(viewModel.budget) cr")
+                metaItem(nil, "\(viewModel.challenge.circuit.sections.count) sections")
+            }
+            .padding(.top, 3)
+        }
+        .apexHeaderBand()
+    }
+
+    private func metaItem(_ symbol: String?, _ text: String) -> some View {
+        HStack(spacing: 4) {
+            if let symbol { Image(systemName: symbol) }
+            Text(text)
+        }
+        .apexLabel(Theme.Color.cream.opacity(0.88))
+    }
+
+    /// Two rows, and neither repeats the header.
+    ///
+    /// The first version had "Track type: Balanced Circuit" directly
+    /// under a title reading "Balanced Circuit", and "Budget: 96
+    /// credits" under a header already showing "96 CR" — the circuit
+    /// name is derived from the archetype, so those two lines could
+    /// never disagree. Both are gone. The layout strip moved in here and
+    /// got a label, which is the only thing that made it mean anything:
+    /// as a row of loose glyphs floating between two cards it read as
+    /// decoration.
+    private func specCard(_ viewModel: DailyViewModel) -> some View {
+        VStack(spacing: 0) {
+            briefRow(label: "Conditions",
+                     value: weatherEffects(viewModel.challenge.weather).effect)
+            Rectangle().fill(Theme.Color.rule).frame(height: 1)
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Layout").apexLabel()
+                Spacer(minLength: 12)
+                sectionStrip(viewModel.challenge.circuit)
+            }
+            .padding(.vertical, 12)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 2)
+        .apexCard()
+        .padding(.horizontal, 20)
+    }
+
+    private func briefRow(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label).apexLabel()
+            Spacer(minLength: 12)
+            Text(value)
+                .font(Theme.Font.body(13.5))
+                .foregroundStyle(Theme.Color.cream)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, 12)
     }
 
     // MARK: - Yesterday's reveal
 
     private struct OptimalRow: Identifiable {
-            let id: EngineeringCategoryID
-            let category: String
-            let option: String
-            /// The player's pick, only when it differed from optimal.
-            /// nil = they matched, so there's nothing to compare.
-            let yours: String?
-        }
+        let id: EngineeringCategoryID
+        let category: String
+        let option: String
+        /// The player's pick, only when it differed from optimal.
+        /// nil = they matched, so there's nothing to compare.
+        let yours: String?
+    }
 
-        /// Built outside the view builder deliberately: a wrong member name
-        /// here produces a precise error on this line, rather than an
-        /// inscrutable ForEach/Binding inference failure in the card body.
-        private func optimalRows(_ reveal: DailyCoordinator.YesterdayReveal) -> [OptimalRow] {
-            EngineeringCategoryID.allCases.compactMap { category -> OptimalRow? in
-                guard let optionID = reveal.optimalSelections[category] else { return nil }
-                let yourID = reveal.yourSelections[category]
-                let differed = yourID != nil && yourID != optionID
-                return OptimalRow(
-                    id: category,
-                    category: category.displayName,
-                    option: OptionLibrary.option(optionID).displayName,
-                    yours: differed ? OptionLibrary.option(yourID!).displayName : nil
-                )
-            }
+    /// Built outside the view builder deliberately: a wrong member name
+    /// here produces a precise error on this line, rather than an
+    /// inscrutable ForEach/Binding inference failure in the card body.
+    private func optimalRows(_ reveal: DailyCoordinator.YesterdayReveal) -> [OptimalRow] {
+        EngineeringCategoryID.allCases.compactMap { category -> OptimalRow? in
+            guard let optionID = reveal.optimalSelections[category] else { return nil }
+            let yourID = reveal.yourSelections[category]
+            let differed = yourID != nil && yourID != optionID
+            return OptimalRow(
+                id: category,
+                category: category.displayName,
+                option: OptionLibrary.option(optionID).displayName,
+                yours: differed ? OptionLibrary.option(yourID!).displayName : nil
+            )
         }
+    }
 
     /// Collapsed by default: yesterday's answer must never push today's
     /// call to action off the screen.
     private func yesterdayRevealCard(_ reveal: DailyCoordinator.YesterdayReveal) -> some View {
         DisclosureGroup {
-            VStack(spacing: 10) {
+            VStack(spacing: 0) {
                 ForEach(optimalRows(reveal)) { row in
-                                    HStack(alignment: .firstTextBaseline) {
-                                        Text(row.category)
-                                            .foregroundStyle(.secondary)
-                                        Spacer()
-                                        VStack(alignment: .trailing, spacing: 1) {
-                                            Text(row.option)
-                                                .fontWeight(.medium)
-                                                .multilineTextAlignment(.trailing)
-                                            // Grey, not red: a different pick isn't
-                                            // necessarily a costly one — there's no
-                                            // per-category time attribution to justify
-                                            // calling it a mistake.
-                                            if let yours = row.yours {
-                                                Text("you: \(yours)")
-                                                    .font(.caption2)
-                                                    .foregroundStyle(.tertiary)
-                                                    .multilineTextAlignment(.trailing)
-                                            }
-                                        }
-                                    }
-                                    .font(.subheadline)
-                                }
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(row.category).apexLabel()
+                        Spacer(minLength: 12)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(row.option)
+                                .font(Theme.Font.body(13))
+                                .foregroundStyle(Theme.Color.cream)
+                                .multilineTextAlignment(.trailing)
+                            // Muted, not red: a different pick isn't
+                            // necessarily a costly one — there's no
+                            // per-category time attribution to justify
+                            // calling it a mistake.
+                            if let yours = row.yours {
+                                Text("you: \(yours)")
+                                    .font(Theme.Font.body(11, weight: .regular))
+                                    .foregroundStyle(Theme.Color.faint)
+                                    .multilineTextAlignment(.trailing)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
 
-                Divider().padding(.vertical, 4)
+                Rectangle().fill(Theme.Color.rule).frame(height: 1).padding(.vertical, 6)
 
                 HStack {
-                    Text("Optimal average").foregroundStyle(.secondary)
+                    Text("Optimal average").apexLabel()
                     Spacer()
                     Text(FixedPoint.formatLapTime(millis: reveal.optimalAverageLapMillis))
-                        .fontWeight(.semibold)
-                        .monospacedDigit()
+                        .apexData(13)
                 }
-                .font(.subheadline)
+                .padding(.vertical, 5)
 
                 HStack {
-                    Text("Your gap").foregroundStyle(.secondary)
+                    Text("Your gap").apexLabel()
                     Spacer()
                     Text(gapText(reveal.gapMillis))
-                        .fontWeight(.semibold)
-                        .monospacedDigit()
-                        .foregroundStyle(reveal.gapMillis == 0 ? Color.green : Color.primary)
+                        .apexData(13, color: reveal.gapMillis == 0
+                            ? Theme.Color.gain : Theme.Color.cream)
                 }
-                .font(.subheadline)
+                .padding(.vertical, 5)
             }
             .padding(.top, 10)
         } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Label("Yesterday's optimal setup", systemImage: "lock.open")
-                    .font(.subheadline.weight(.semibold))
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.open")
+                    Text("Yesterday's optimal setup")
+                }
+                .apexLabel(Theme.Color.signal)
                 Text("Day \(reveal.dayNumber) — you beat \(reveal.beatPercent)% · \(reveal.matchedCount) of \(EngineeringCategoryID.allCases.count) systems matched")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                    .font(Theme.Font.body(12, weight: .regular))
+                    .foregroundStyle(Theme.Color.muted)
             }
         }
+        .tint(Theme.Color.cream)
         .padding(16)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .padding(.horizontal, 24)
+        .apexCard()
+        .padding(.horizontal, 20)
     }
 
     private func gapText(_ millis: Int) -> String {
@@ -279,21 +318,19 @@ struct DailyHomeView: View {
     // MARK: - Actions
 
     private func actionButtons(_ viewModel: DailyViewModel) -> some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             NavigationLink {
                 EngineeringBayView(viewModel: viewModel)
             } label: {
-                Text(viewModel.phase == .submitted ? "View Engineering Debrief" : "Begin Assignment")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                Text(viewModel.phase == .submitted ? "View debrief" : "Begin assignment")
+                    .apexPrimaryButton()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
 
             testSessionButtons
         }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 24)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 28)
     }
 
     // MARK: - Status states
@@ -302,24 +339,28 @@ struct DailyHomeView: View {
         VStack(spacing: 18) {
             Spacer()
             Image(systemName: icon)
-                .font(.system(size: 44))
-                .foregroundStyle(.secondary)
-            Text(title).font(.title3.weight(.semibold))
+                .font(.system(size: 42))
+                .foregroundStyle(Theme.Color.signal)
+            Text(title).apexDisplay(24)
             Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(Theme.Font.body(14, weight: .regular))
+                .foregroundStyle(Theme.Color.muted)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
             if retry {
-                Button("Try Again") {
+                Button {
                     Task { await coordinator.load() }
+                } label: {
+                    Text("Try again").apexPrimaryButton()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
+                .padding(.horizontal, 60)
+                .padding(.top, 4)
             }
             Spacer()
             testSessionButtons
-                .padding(.horizontal, 24)
-                .padding(.bottom, 16)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
         }
     }
 
@@ -328,41 +369,39 @@ struct DailyHomeView: View {
             NavigationLink {
                 TestSessionView(viewModel: .quickRace())
             } label: {
-                Label("Quick Race", systemImage: "flag.checkered")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                Text("Quick Race").apexSecondaryButton()
             }
+            .buttonStyle(.plain)
+
             NavigationLink {
                 TestSessionView(viewModel: TestSessionViewModel(
                     conditions: .init(archetype: .balanced, weather: .sunny, budget: 100),
                     seed: UInt64(Date().timeIntervalSince1970)
                 ))
             } label: {
-                Label("Test Lab", systemImage: "slider.horizontal.3")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                Text("Test Lab").apexSecondaryButton()
             }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.bordered)
     }
 
     // MARK: - Presentation helpers
 
     private func dayKicker(_ viewModel: DailyViewModel) -> String {
         if let day = ChallengeSeed.dayNumber(fromDateKey: viewModel.challenge.dateKey) {
-            return "TODAY'S ASSIGNMENT — DAY \(day)"
+            return "Today's assignment — day \(day)"
         }
-        return "TODAY'S ASSIGNMENT"
+        return "Today's assignment"
     }
 
     /// Layout rhythm at a glance — abstract glyphs, not a map (v2 gets
     /// the real track art).
     private func sectionStrip(_ circuit: Circuit) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 7) {
             ForEach(Array(circuit.sections.enumerated()), id: \.offset) { _, section in
                 Image(systemName: glyph(for: section))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Theme.Color.faint)
             }
         }
     }
@@ -400,17 +439,9 @@ struct DailyHomeView: View {
         }
         return name
     }
-
-    private func briefRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label).foregroundStyle(.secondary)
-            Spacer()
-            Text(value).fontWeight(.medium)
-        }
-        .font(.subheadline)
-    }
 }
 
 #Preview {
     DailyHomeView()
+        .preferredColorScheme(.dark)
 }

@@ -68,8 +68,8 @@ final class BatchValidationTests: XCTestCase {
 
         XCTAssertTrue(
             report.gate.passed,
-            "DIVERSITY GATE FAILED — this blocks UI work, not the commit. "
-            + "Failures:\n" + report.gate.failures.joined(separator: "\n")
+            "BALANCE GATE FAILED — this blocks UI work, not the commit. "
+            + "Failures:\n" + report.gate.balanceFailures.joined(separator: "\n")
         )
     }
 }
