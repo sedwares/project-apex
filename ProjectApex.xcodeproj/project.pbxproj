@@ -38,9 +38,22 @@
 		8F6BA5D03002F23E00B3CBB5 /* ProjectApexCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = ProjectApexCore; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8F9459DB30366FC000BDBA91 /* Exceptions for "ProjectApex" folder in "ProjectApex" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 8F6BA592300056C400B3CBB5 /* ProjectApex */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		8F6BA595300056C400B3CBB5 /* ProjectApex */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				8F9459DB30366FC000BDBA91 /* Exceptions for "ProjectApex" folder in "ProjectApex" target */,
+			);
 			path = ProjectApex;
 			sourceTree = "<group>";
 		};
@@ -460,6 +473,8 @@
 				DEVELOPMENT_TEAM = H868QD76KJ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ProjectApex/Info.plist;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -493,6 +508,8 @@
 				DEVELOPMENT_TEAM = H868QD76KJ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ProjectApex/Info.plist;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
