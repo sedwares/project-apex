@@ -46,7 +46,7 @@ final class RaceScene: SKScene {
     var onFinished: (() -> Void)?
 
     private var config: Config!
-    private let car = SKShapeNode()
+    private let car = SKNode()
     private let carGlow = SKShapeNode(circleOfRadius: 16)
     private let trail = SKShapeNode()
     private let trackLine = SKShapeNode()
@@ -129,6 +129,25 @@ final class RaceScene: SKScene {
         }
     }
 
+    /// A top-down Formula car rather than a chevron.
+    ///
+    /// ── ON THE COLOUR ──────────────────────────────────────────────
+    /// The body is CREAM, not signal red. A red single-seater reads as
+    /// Ferrari to anyone who watches the sport, and borrowing another
+    /// team's identity is not the association this game wants. Cream is
+    /// unclaimed — no constructor owns white — and it has more contrast
+    /// against the near-black track than red did.
+    ///
+    /// The livery is not lost: a signal-red stripe runs the centreline,
+    /// the bloom under the car is red, and so is the trail. Red stays
+    /// the colour of MOTION here, which is what it means everywhere
+    /// else in the app.
+    ///
+    /// ── ON THE SHAPE ───────────────────────────────────────────────
+    /// What makes a car read as Formula from above is not detail, which
+    /// is invisible at this size — it is the wide front wing, four
+    /// EXPOSED wheels outboard of a narrow body, and a wide rear wing.
+    /// Drawn nose-up (+y); RaceScene applies the -pi/2 itself.
     private func buildCar() {
         // Soft bloom under the car, brightened on the fast stuff.
         carGlow.fillColor = Paint.signal.withAlphaComponent(0.20)
@@ -143,18 +162,60 @@ final class RaceScene: SKScene {
         trail.zPosition = 9
         addChild(trail)
 
-        // A stubby arrow — reads as a car at this size where a thin
-        // chevron read as a cursor.
-        let p = CGMutablePath()
-        p.move(to: CGPoint(x: 0, y: 13))
-        p.addLine(to: CGPoint(x: -8, y: -6))
-        p.addLine(to: CGPoint(x: 0, y: -2))
-        p.addLine(to: CGPoint(x: 8, y: -6))
-        p.closeSubpath()
-        car.path = p
-        car.fillColor = Paint.signal
-        car.strokeColor = Paint.cream
-        car.lineWidth = 1.5
+        // Tyres first, so the bodywork sits over them.
+        let tyre = SKColor(red: 0.07, green: 0.07, blue: 0.09, alpha: 1)
+        let wheels: [(CGPoint, CGSize)] = [
+            (CGPoint(x: -7.6, y:  8), CGSize(width: 4.6, height: 8.2)),   // front left
+            (CGPoint(x:  7.6, y:  8), CGSize(width: 4.6, height: 8.2)),   // front right
+            (CGPoint(x: -8.1, y: -8), CGSize(width: 5.2, height: 9.4)),   // rear left
+            (CGPoint(x:  8.1, y: -8), CGSize(width: 5.2, height: 9.4))    // rear right
+        ]
+        for (centre, size) in wheels {
+            let w = SKShapeNode(rectOf: size, cornerRadius: 1.6)
+            w.position = centre
+            w.fillColor = tyre
+            w.strokeColor = Paint.cream.withAlphaComponent(0.45)
+            w.lineWidth = 0.8
+            w.zPosition = 1
+            car.addChild(w)
+        }
+
+        // Front wing, nose, sidepods, rear wing — one outline.
+        let body = CGMutablePath()
+        let hull: [CGPoint] = [
+            CGPoint(x: -9.0, y:  16.0), CGPoint(x:  9.0, y:  16.0),   // front wing
+            CGPoint(x:  9.0, y:  13.0), CGPoint(x:  3.0, y:  12.0),   // to the nose
+            CGPoint(x:  3.5, y:   3.0), CGPoint(x:  5.6, y:   2.0),   // sidepod out
+            CGPoint(x:  5.6, y:  -6.0), CGPoint(x:  3.5, y:  -7.0),   // sidepod back
+            CGPoint(x:  3.5, y: -13.0), CGPoint(x:  8.0, y: -13.0),   // rear wing
+            CGPoint(x:  8.0, y: -16.0), CGPoint(x: -8.0, y: -16.0),
+            CGPoint(x: -8.0, y: -13.0), CGPoint(x: -3.5, y: -13.0),
+            CGPoint(x: -3.5, y:  -7.0), CGPoint(x: -5.6, y:  -6.0),
+            CGPoint(x: -5.6, y:   2.0), CGPoint(x: -3.5, y:   3.0),
+            CGPoint(x: -3.0, y:  12.0), CGPoint(x: -9.0, y:  13.0)
+        ]
+        body.addLines(between: hull)
+        body.closeSubpath()
+
+        let shell = SKShapeNode(path: body)
+        shell.fillColor = Paint.cream
+        shell.strokeColor = Paint.ink.withAlphaComponent(0.55)
+        shell.lineWidth = 0.9
+        shell.zPosition = 2
+        car.addChild(shell)
+
+        // The livery: one red line down the centreline.
+        let stripe = SKShapeNode(rectOf: CGSize(width: 2.4, height: 24))
+        stripe.position = CGPoint(x: 0, y: 0.5)
+        stripe.fillColor = Paint.signal
+        stripe.strokeColor = .clear
+        stripe.zPosition = 3
+        car.addChild(stripe)
+
+        // Drawn at a comfortable size to reason about, then sized to the
+        // 16pt track ribbon so the car sits ON the road rather than
+        // swallowing it.
+        car.setScale(0.72)
         car.zPosition = 10
         car.position = loop.point(at: 0)
         addChild(car)
