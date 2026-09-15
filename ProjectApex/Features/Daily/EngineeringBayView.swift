@@ -24,33 +24,39 @@ struct EngineeringBayView: View {
 
     var body: some View {
         List {
+            // The car being built. It starts as an outline and fills in
+            // part by part, so the bay reads as construction rather than
+            // as a form — and so all eight choices are visible at once,
+            // which twenty-four scrolling rows can never be.
             Section {
-                if viewModel.selections.isEmpty {
-                    // Nothing selected yet — slim placeholder so the screen
-                    // isn't a blank wall while the player reads the header.
-                    HStack(spacing: 12) {
-                        Rectangle()
-                            .fill(Theme.Color.signal)
-                            .frame(width: 3, height: 32)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Choose your 8 systems below")
-                                .font(Theme.Font.body(14))
-                                .foregroundStyle(Theme.Color.cream)
-                            Text("Circuit analysis appears as you build")
-                                .font(Theme.Font.body(11.5, weight: .regular))
-                                .foregroundStyle(Theme.Color.muted)
-                        }
+                VStack(spacing: 12) {
+                    SetupCarView(selections: viewModel.selections)
+                        .frame(height: 176)
+                        .frame(maxWidth: .infinity)
+
+                    SetupSpecGrid(selections: viewModel.selections)
+
+                    if let identity = viewModel.identityPreview {
+                        Text(identity.displayText)
+                            .apexDisplay(17)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text("Eight systems, one budget. The car takes shape as you choose.")
+                            .font(Theme.Font.body(11.5, weight: .regular))
+                            .foregroundStyle(Theme.Color.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(.vertical, 10)
-                } else {
+                }
+                .padding(.vertical, 8)
+            }
+            .listRowBackground(Theme.Color.panel)
+            .listRowSeparator(.hidden)
+
+            // The circuit's demands are about the TRACK, not the car, so
+            // they are their own section rather than more of that one.
+            if !viewModel.selections.isEmpty {
+                Section {
                     VStack(alignment: .leading, spacing: 12) {
-                        if let identity = viewModel.identityPreview {
-                            Text(identity.displayText)
-                                .apexDisplay(18)
-                        }
-
-                        Text("What decides today").apexLabel()
-
                         ForEach(Array(viewModel.livePreview.axes.enumerated()), id: \.element.name) { rank, axis in
                             DemandAxisRow(axis: axis, rank: rank)
                         }
@@ -61,12 +67,12 @@ struct EngineeringBayView: View {
                             .padding(.top, 2)
                     }
                     .padding(.vertical, 6)
-                    .transition(.opacity)
+                } header: {
+                    Text("What decides today").apexLabel(Theme.Color.muted)
                 }
+                .listRowBackground(Theme.Color.panel)
+                .listRowSeparator(.hidden)
             }
-            .listRowBackground(Theme.Color.panel)
-            .listRowSeparator(.hidden)
-            .animation(.easeInOut(duration: 0.2), value: viewModel.selections.isEmpty)
 
             ForEach(OptionLibrary.categories) { category in
                 Section {
