@@ -269,12 +269,6 @@ struct CircuitLoop {
         sectorStartTimes.map { arcPosition(atLapTime: $0) }
     }
 
-    /// The centre the loop is drawn around. Used to work out which side
-    /// of the track is the INSIDE of a corner, which is where kerbs go.
-    var centre: CGPoint {
-        CGPoint(x: size.width / 2, y: size.height / 2)
-    }
-
     /// Each section with the stretch of loop it occupies, so the scene
     /// can decorate corners differently from straights.
     var sectionArcs: [(section: TrackSectionType, start: Double, end: Double)] {
@@ -285,14 +279,27 @@ struct CircuitLoop {
         }
     }
 
-    /// A point offset perpendicular to the track, toward the loop's
-    /// centre. `inset` is in points from the centreline.
-    func innerEdgePoint(at t: Double, offset: CGFloat) -> CGPoint {
+    /// Signed turn rate at `t`. Positive means the track bends LEFT.
+    func curvature(at t: Double, epsilon: Double = 0.004) -> CGFloat {
+        var delta = heading(at: t + epsilon) - heading(at: t - epsilon)
+        while delta >  .pi { delta -= 2 * .pi }
+        while delta < -.pi { delta += 2 * .pi }
+        return delta
+    }
+
+    /// A point offset perpendicular to the track, on the INSIDE of the
+    /// turn — which is where a kerb goes.
+    ///
+    /// This used to offset toward the loop's centre, which is only right
+    /// on a convex loop. An S-bend turns one way and then the other, so
+    /// its second curve has its inside on the opposite edge, and kerbs
+    /// laid toward the centre crossed the track to get there. Taking the
+    /// side from the local curvature is correct everywhere.
+    func apexSidePoint(at t: Double, offset: CGFloat) -> CGPoint {
         let p = point(at: t)
-        let c = centre
-        let dx = c.x - p.x, dy = c.y - p.y
-        let len = max(sqrt(dx * dx + dy * dy), 0.0001)
-        return CGPoint(x: p.x + dx / len * offset, y: p.y + dy / len * offset)
+        let normal = heading(at: t) + (curvature(at: t) > 0 ? .pi / 2 : -.pi / 2)
+        return CGPoint(x: p.x + cos(normal) * offset,
+                       y: p.y + sin(normal) * offset)
     }
 
     /// The closed loop as a path, sampled into `steps` segments.

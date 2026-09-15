@@ -163,38 +163,40 @@ final class RaceScene: SKScene {
 
     // MARK: - Kerbs
 
-    /// Red-and-white kerbs on the inside of every corner.
+    /// Red-and-white kerbs at the APEX of the tightest corners.
     ///
-    /// This is the most recognisable piece of track furniture in the
-    /// sport, and the circuit already knows where it belongs — corners
-    /// and braking zones are section types, so the kerbs land on real
-    /// geometry rather than being sprinkled for decoration. Straights
-    /// get none, which is exactly why the corners now read AS corners.
+    /// The first version kerbed every corner and braking zone over its
+    /// full length, which on a technical circuit meant kerbing most of
+    /// the lap. Marking almost everything marks nothing: the stripes
+    /// stopped reading as track furniture and started reading as a
+    /// dashed lane divider.
+    ///
+    /// Two corrections. Only the genuinely SLOW corners qualify — a fast
+    /// corner is taken flat and does not want a kerb drawing attention
+    /// to it — and each gets only the middle of its arc, because a kerb
+    /// belongs at the apex rather than running the whole way round. The
+    /// result is punctuation, and the eye can now find the hairpin.
     ///
     /// Two nodes total, not one per stripe: each colour accumulates its
-    /// rectangles into a single path via addPath(_:transform:), so a
-    /// fifty-stripe circuit still costs two draws.
+    /// rectangles into a single path via addRect(_:transform:), so even
+    /// a busy circuit costs two draws.
     private func buildKerbs() {
         let red = CGMutablePath()
         let white = CGMutablePath()
-        let stripe = CGRect(x: -3.6, y: -1.9, width: 7.2, height: 3.8)
+        let stripe = CGRect(x: -4.0, y: -2.0, width: 8.0, height: 4.0)
         var drew = false
 
         for span in loop.sectionArcs {
-            switch span.section.family {
-            case .corner, .braking:
-                break              // kerbed
-            case .straight, .climb, .drop, .bumpy:
-                continue           // no kerbs on the fast stuff
-            }
+            guard let coverage = Self.kerbCoverage(span.section) else { continue }
             let width = span.end - span.start
-            let count = max(3, Int(width * 150))
+            let covered = width * coverage
+            let from = span.start + (width - covered) / 2
+            let count = max(2, Int(covered * 105))
             for i in 0..<count {
-                let t = span.start + width * (Double(i) + 0.5) / Double(count)
-                let at = loop.innerEdgePoint(at: t, offset: 7.0)
-                let heading = loop.heading(at: t)
+                let t = from + covered * (Double(i) + 0.5) / Double(count)
+                let at = loop.apexSidePoint(at: t, offset: 7.5)
                 let transform = CGAffineTransform(translationX: at.x, y: at.y)
-                    .rotated(by: heading)
+                    .rotated(by: loop.heading(at: t))
                 (i % 2 == 0 ? red : white).addRect(stripe, transform: transform)
                 drew = true
             }
@@ -207,6 +209,22 @@ final class RaceScene: SKScene {
             node.strokeColor = .clear
             node.zPosition = 3
             addChild(node)
+        }
+    }
+
+    /// How much of a section's arc carries kerb, or nil for none.
+    /// Tighter corner, more kerb — a hairpin is almost all apex, while a
+    /// fast corner is taken flat and gets nothing at all.
+    static func kerbCoverage(_ section: TrackSectionType) -> Double? {
+        switch section {
+        case .hairpin:          return 0.66
+        case .slowCorner:       return 0.56
+        case .technicalSector:  return 0.50
+        case .heavyBrakingZone: return 0.46
+        case .mediumCorner:     return 0.38
+        case .fastCorner, .longStraight, .shortStraight, .finalStraight,
+             .elevationClimb, .elevationDrop, .bumpySector:
+            return nil
         }
     }
 
