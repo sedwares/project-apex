@@ -33,14 +33,38 @@ final class CircuitCompositionTests: XCTestCase {
     func testReferenceCircuitSummary() {
         // Reference Ring: 3 straights (long, short, final), 1 braking,
         // 5 corners (medium, hairpin, fast, technical, slow),
-        // 2 elevation, 1 bumpy.
+        // 1 climb, 1 drop, 1 bumpy.
         let composition = Circuit.reference.sections.composition
         XCTAssertEqual(composition.first?.family, .corner)
         XCTAssertEqual(composition.first?.count, 5)
         XCTAssertEqual(
             Circuit.reference.compositionSummary(),
-            "5 corners · 3 straights · 2 elevation changes"
+            "5 corners · 3 straights · 1 braking zone · 1 climb · 1 drop · 1 bumpy sector"
         )
+    }
+
+    /// The whole point of dropping the old `limit: 3` default: the line
+    /// sits directly above a "N sections" readout, so if it does not add
+    /// up to N it reads as a miscount. A Mountain Circuit printed
+    /// "7 elevation changes · 2 corners · 1 straight" next to "11 sections".
+    func testSummaryAccountsForEverySection() {
+        for circuit in [Circuit.reference] {
+            let named = circuit.sections.composition.reduce(0) { $0 + $1.count }
+            XCTAssertEqual(named, circuit.sections.count)
+            // Every family in the summary, so the counts a player can add
+            // up match the section total.
+            let mentioned = circuit.compositionSummary()
+                .components(separatedBy: " · ").count
+            XCTAssertEqual(mentioned, circuit.sections.composition.count)
+        }
+    }
+
+    func testClimbAndDropAreSeparate() {
+        // A climb wants power and cooling; a drop wants braking and
+        // stability. Merging them hid that on exactly the circuit where
+        // it decides the lap.
+        XCTAssertEqual(TrackSectionType.elevationClimb.family, .climb)
+        XCTAssertEqual(TrackSectionType.elevationDrop.family, .drop)
     }
 
     func testCountsSumToSectionCount() {

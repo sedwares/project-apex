@@ -187,15 +187,6 @@ struct TestSessionView: View {
     /// Quick Race: the conditions are the brief — read them, race them.
     private var quickRaceConditionsSection: some View {
         Section {
-            HStack(alignment: .firstTextBaseline) {
-                Text(viewModel.conditions.archetype.displayName)
-                    .font(Theme.Font.body(15))
-                    .foregroundStyle(Theme.Color.cream)
-                Spacer(minLength: 10)
-                Text("\(viewModel.conditions.weather.displayName) · \(viewModel.budget) cr · \(viewModel.circuit.sections.count) sections")
-                    .apexData(11.5, weight: .medium, color: Theme.Color.muted)
-            }
-            .padding(.vertical, 2)
             Button {
                 viewModel.newQuickRace()
             } label: {

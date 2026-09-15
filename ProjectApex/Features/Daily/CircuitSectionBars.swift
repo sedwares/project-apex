@@ -86,11 +86,12 @@ struct CircuitSectionBars: View {
     /// sentence below it are one taxonomy, not two.
     static func color(of section: TrackSectionType) -> Color {
         switch section.family {
-        case .straight:  return Theme.Color.cream.opacity(0.58)   // flat out
-        case .braking:   return Theme.Color.notice.opacity(0.80)  // caution
-        case .corner:    return Theme.Color.cream.opacity(0.32)
-        case .elevation: return Theme.Color.cream.opacity(0.20)
-        case .bumpy:     return Theme.Color.cream.opacity(0.20)
+        case .straight: return Theme.Color.cream.opacity(0.58)   // flat out
+        case .braking:  return Theme.Color.notice.opacity(0.80)  // caution
+        case .corner:   return Theme.Color.cream.opacity(0.34)
+        case .climb:    return Theme.Color.cream.opacity(0.26)
+        case .drop:     return Theme.Color.cream.opacity(0.18)
+        case .bumpy:    return Theme.Color.cream.opacity(0.18)
         }
     }
 }

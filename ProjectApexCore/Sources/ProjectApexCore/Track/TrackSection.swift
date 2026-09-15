@@ -89,26 +89,29 @@ public nonisolated enum TrackSectionFamily: String, CaseIterable, Sendable {
     case straight
     case braking
     case corner
-    case elevation
+    case climb
+    case drop
     case bumpy
 
     public var singular: String {
         switch self {
-        case .straight:  return "straight"
-        case .braking:   return "braking zone"
-        case .corner:    return "corner"
-        case .elevation: return "elevation change"
-        case .bumpy:     return "bumpy sector"
+        case .straight: return "straight"
+        case .braking:  return "braking zone"
+        case .corner:   return "corner"
+        case .climb:    return "climb"
+        case .drop:     return "drop"
+        case .bumpy:    return "bumpy sector"
         }
     }
 
     public var plural: String {
         switch self {
-        case .straight:  return "straights"
-        case .braking:   return "braking zones"
-        case .corner:    return "corners"
-        case .elevation: return "elevation changes"
-        case .bumpy:     return "bumpy sectors"
+        case .straight: return "straights"
+        case .braking:  return "braking zones"
+        case .corner:   return "corners"
+        case .climb:    return "climbs"
+        case .drop:     return "drops"
+        case .bumpy:    return "bumpy sectors"
         }
     }
 }
@@ -122,8 +125,10 @@ extension TrackSectionType {
             return .braking
         case .hairpin, .slowCorner, .mediumCorner, .fastCorner, .technicalSector:
             return .corner
-        case .elevationClimb, .elevationDrop:
-            return .elevation
+        case .elevationClimb:
+            return .climb
+        case .elevationDrop:
+            return .drop
         case .bumpySector:
             return .bumpy
         }
@@ -153,8 +158,10 @@ extension Sequence where Element == TrackSectionType {
     /// rectangles can, and the person who designed it still had to ask
     /// what it meant. This is the line that decodes it, and the bars are
     /// coloured by the families it names.
-    public func compositionSummary(limit: Int = 3) -> String {
-        composition.prefix(limit)
+    public func compositionSummary(limit: Int? = nil) -> String {
+        let all = composition
+        let shown = limit.map { Array(all.prefix($0)) } ?? all
+        return shown
             .map { "\($0.count) \($0.count == 1 ? $0.family.singular : $0.family.plural)" }
             .joined(separator: " · ")
     }
