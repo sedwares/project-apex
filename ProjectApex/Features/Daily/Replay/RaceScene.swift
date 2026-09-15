@@ -27,6 +27,7 @@
 //
 
 import SpriteKit
+import UIKit
 import ProjectApexCore
 
 final class RaceScene: SKScene {
@@ -82,9 +83,131 @@ final class RaceScene: SKScene {
                            sections: config.sections,
                            archetype: config.archetype,
                            axis: .up)
+        buildBackdrop()
         buildTrack()
+        buildKerbs()
         buildCar()
         runReplay()
+    }
+
+    // MARK: - Backdrop
+
+    /// What makes a screen feel like a race broadcast before anything
+    /// moves is the SURFACE it is drawn on. A flat black rectangle reads
+    /// as an empty view; a faint measured grid reads as a monitor on a
+    /// pit wall. Two layers, both static, both built once:
+    ///
+    ///   · a telemetry grid at 30pt, barely above the background
+    ///   · a radial vignette, so the middle of the circuit is the
+    ///     brightest thing on screen and the eye goes there first
+    ///
+    /// Everything here is deliberately near-invisible in isolation. It
+    /// is meant to be felt, not read — turn either up and the track
+    /// stops being the subject.
+    private func buildBackdrop() {
+        let grid = CGMutablePath()
+        let step: CGFloat = 30
+        var x: CGFloat = 0
+        while x <= size.width {
+            grid.move(to: CGPoint(x: x, y: 0))
+            grid.addLine(to: CGPoint(x: x, y: size.height))
+            x += step
+        }
+        var y: CGFloat = 0
+        while y <= size.height {
+            grid.move(to: CGPoint(x: 0, y: y))
+            grid.addLine(to: CGPoint(x: size.width, y: y))
+            y += step
+        }
+        let gridNode = SKShapeNode(path: grid)
+        gridNode.strokeColor = Paint.cream.withAlphaComponent(0.035)
+        gridNode.lineWidth = 1
+        gridNode.zPosition = -10
+        addChild(gridNode)
+
+        if let texture = vignetteTexture(size: size) {
+            let v = SKSpriteNode(texture: texture, size: size)
+            v.position = CGPoint(x: size.width / 2, y: size.height / 2)
+            v.zPosition = -9
+            v.alpha = 0.9
+            addChild(v)
+        }
+    }
+
+    /// SpriteKit has no radial gradient primitive, so draw one once into
+    /// a texture rather than faking it with stacked shapes.
+    private func vignetteTexture(size: CGSize) -> SKTexture? {
+        guard size.width > 1, size.height > 1 else { return nil }
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { ctx in
+            let cg = ctx.cgContext
+            let colors = [
+                UIColor.clear.cgColor,
+                UIColor.black.withAlphaComponent(0.62).cgColor
+            ] as CFArray
+            guard let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: colors,
+                locations: [0.30, 1.0]
+            ) else { return }
+            let mid = CGPoint(x: size.width / 2, y: size.height / 2)
+            cg.drawRadialGradient(
+                gradient,
+                startCenter: mid, startRadius: 0,
+                endCenter: mid, endRadius: max(size.width, size.height) * 0.60,
+                options: [.drawsAfterEndLocation]
+            )
+        }
+        return SKTexture(image: image)
+    }
+
+    // MARK: - Kerbs
+
+    /// Red-and-white kerbs on the inside of every corner.
+    ///
+    /// This is the most recognisable piece of track furniture in the
+    /// sport, and the circuit already knows where it belongs — corners
+    /// and braking zones are section types, so the kerbs land on real
+    /// geometry rather than being sprinkled for decoration. Straights
+    /// get none, which is exactly why the corners now read AS corners.
+    ///
+    /// Two nodes total, not one per stripe: each colour accumulates its
+    /// rectangles into a single path via addPath(_:transform:), so a
+    /// fifty-stripe circuit still costs two draws.
+    private func buildKerbs() {
+        let red = CGMutablePath()
+        let white = CGMutablePath()
+        let stripe = CGRect(x: -3.6, y: -1.9, width: 7.2, height: 3.8)
+        var drew = false
+
+        for span in loop.sectionArcs {
+            switch span.section.family {
+            case .corner, .braking:
+                break              // kerbed
+            case .straight, .climb, .drop, .bumpy:
+                continue           // no kerbs on the fast stuff
+            }
+            let width = span.end - span.start
+            let count = max(3, Int(width * 150))
+            for i in 0..<count {
+                let t = span.start + width * (Double(i) + 0.5) / Double(count)
+                let at = loop.innerEdgePoint(at: t, offset: 7.0)
+                let heading = loop.heading(at: t)
+                let transform = CGAffineTransform(translationX: at.x, y: at.y)
+                    .rotated(by: heading)
+                (i % 2 == 0 ? red : white).addRect(stripe, transform: transform)
+                drew = true
+            }
+        }
+        guard drew else { return }
+
+        for (path, colour) in [(red, Paint.signal), (white, Paint.cream)] {
+            let node = SKShapeNode(path: path)
+            node.fillColor = colour.withAlphaComponent(0.85)
+            node.strokeColor = .clear
+            node.zPosition = 3
+            addChild(node)
+        }
     }
 
     // MARK: - Track
@@ -107,14 +230,31 @@ final class RaceScene: SKScene {
         racingLine.zPosition = 2
         addChild(racingLine)
 
-        // Start/finish.
-        let sf = SKShapeNode(rectOf: CGSize(width: 5, height: 24))
-        sf.fillColor = Paint.cream
-        sf.strokeColor = .clear
-        sf.zPosition = 5
-        sf.position = loop.point(at: 0)
-        sf.zRotation = loop.heading(at: 0)
-        addChild(sf)
+        // Start/finish, checkered — two rows of squares across the
+        // track rather than a plain bar. Costs nothing and is the one
+        // marking everybody recognises without being told.
+        let light = CGMutablePath()
+        let dark = CGMutablePath()
+        let square: CGFloat = 4.0
+        let origin = loop.point(at: 0)
+        let facing = loop.heading(at: 0)
+        let place = CGAffineTransform(translationX: origin.x, y: origin.y).rotated(by: facing)
+        for row in 0..<2 {
+            for col in 0..<4 {
+                let along = (CGFloat(row) - 0.5) * square
+                let across = (CGFloat(col) - 1.5) * square
+                let cell = CGRect(x: along - square / 2, y: across - square / 2,
+                                  width: square, height: square)
+                ((row + col) % 2 == 0 ? light : dark).addRect(cell, transform: place)
+            }
+        }
+        for (path, colour) in [(light, Paint.cream), (dark, Paint.ink)] {
+            let node = SKShapeNode(path: path)
+            node.fillColor = colour
+            node.strokeColor = .clear
+            node.zPosition = 6
+            addChild(node)
+        }
 
         // Sector gates. Index 0 IS start/finish, so only draw 2 and 3.
         let gates = loop.sectorGateArcs

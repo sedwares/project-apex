@@ -269,6 +269,32 @@ struct CircuitLoop {
         sectorStartTimes.map { arcPosition(atLapTime: $0) }
     }
 
+    /// The centre the loop is drawn around. Used to work out which side
+    /// of the track is the INSIDE of a corner, which is where kerbs go.
+    var centre: CGPoint {
+        CGPoint(x: size.width / 2, y: size.height / 2)
+    }
+
+    /// Each section with the stretch of loop it occupies, so the scene
+    /// can decorate corners differently from straights.
+    var sectionArcs: [(section: TrackSectionType, start: Double, end: Double)] {
+        sections.indices.map {
+            (section: sections[$0],
+             start: arcStart[$0],
+             end: arcStart[$0] + arcFrac[$0])
+        }
+    }
+
+    /// A point offset perpendicular to the track, toward the loop's
+    /// centre. `inset` is in points from the centreline.
+    func innerEdgePoint(at t: Double, offset: CGFloat) -> CGPoint {
+        let p = point(at: t)
+        let c = centre
+        let dx = c.x - p.x, dy = c.y - p.y
+        let len = max(sqrt(dx * dx + dy * dy), 0.0001)
+        return CGPoint(x: p.x + dx / len * offset, y: p.y + dy / len * offset)
+    }
+
     /// The closed loop as a path, sampled into `steps` segments.
     func path(steps: Int = 320) -> CGPath {
         let path = CGMutablePath()
