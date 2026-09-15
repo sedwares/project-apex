@@ -362,9 +362,13 @@ struct SimulationReplayView: View {
             HStack(spacing: 4) {
                 Text(label).apexLabel(Theme.Color.muted)
                 Spacer(minLength: 2)
+                // Snap, don't interpolate. At 12 Hz a morphing
+                // percentage renders both readings at once and the
+                // digits overlap into nonsense.
                 Text("\(Int(value * 100))%")
                     .apexData(11, weight: .bold, color: tone)
                     .monospacedDigit()
+                    .contentTransition(.identity)
             }
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
@@ -372,12 +376,12 @@ struct SimulationReplayView: View {
                     Rectangle()
                         .fill(tone)
                         .frame(width: max(2, proxy.size.width * value))
+                        .animation(.easeOut(duration: 0.18), value: value)
                 }
             }
             .frame(height: 5)
         }
         .frame(maxWidth: .infinity)
-        .animation(.easeOut(duration: 0.18), value: value)
     }
 
     // MARK: - Scene wiring
@@ -443,7 +447,13 @@ struct SimulationReplayView: View {
             radio = nil
             finished = true
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) { onFinished() }
+            // NO auto-advance. This used to dismiss itself 1.1s after the
+            // flag, which meant Continue appeared and was gone before it
+            // could be pressed — and, worse, the lap board is full at
+            // exactly that moment. The board is the point of the
+            // ceremony; snatching it away one beat after it completes
+            // wastes the only screen that tells the whole run's story.
+            // The player leaves when the player is ready.
         }
 
         self.scene = scene

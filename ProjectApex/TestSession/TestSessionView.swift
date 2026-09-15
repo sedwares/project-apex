@@ -17,7 +17,6 @@ private struct ReplayResultWrapper: Identifiable {
 
 struct TestSessionView: View {
     @State var viewModel: TestSessionViewModel
-    @State private var showResultSummary = false
 
     var body: some View {
         List {
@@ -157,19 +156,16 @@ struct TestSessionView: View {
                     result: wrapper.result,
                     challenge: viewModel.challengeAdapter
                 ) {
-                    showResultSummary = true
+                    // Dismiss straight back to the session. There used
+                    // to be a "Run Complete" alert here, presented from
+                    // a view sitting UNDER this cover — which is why the
+                    // replay bounced away instead of waiting for
+                    // Continue. It was also the third telling of one
+                    // fact: the replay ends on a full lap board, and the
+                    // run is already listed in THIS SESSION below.
+                    viewModel.replayResult = nil
                 }
             }
-        }
-        .alert(
-            "Run Complete",
-            isPresented: $showResultSummary,
-            presenting: viewModel.replayResult
-        ) { _ in
-            Button("Done") { viewModel.replayResult = nil }
-        } message: { result in
-            Text(FixedPoint.formatLapTime(millis: result.averageLapTimeMillis)
-                 + " average · " + result.setupIdentity.displayText)
         }
     }
 
