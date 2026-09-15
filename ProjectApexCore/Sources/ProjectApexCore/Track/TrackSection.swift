@@ -74,3 +74,88 @@ public nonisolated enum TrackSectionType: String, Codable, CaseIterable, Sendabl
         }
     }
 }
+
+// MARK: - Families
+
+/// The coarse grouping a player actually thinks in when choosing parts:
+/// is this lap mostly flat out, mostly braking, or mostly turning?
+///
+/// It exists so the UI's circuit bar strip and the sentence printed under
+/// it describe ONE taxonomy. The strip used to group `hairpin` with
+/// braking zones purely because both looked like caution; a hairpin's
+/// demand is grip and acceleration first, so it belongs with the corners
+/// and now sits there.
+public nonisolated enum TrackSectionFamily: String, CaseIterable, Sendable {
+    case straight
+    case braking
+    case corner
+    case elevation
+    case bumpy
+
+    public var singular: String {
+        switch self {
+        case .straight:  return "straight"
+        case .braking:   return "braking zone"
+        case .corner:    return "corner"
+        case .elevation: return "elevation change"
+        case .bumpy:     return "bumpy sector"
+        }
+    }
+
+    public var plural: String {
+        switch self {
+        case .straight:  return "straights"
+        case .braking:   return "braking zones"
+        case .corner:    return "corners"
+        case .elevation: return "elevation changes"
+        case .bumpy:     return "bumpy sectors"
+        }
+    }
+}
+
+extension TrackSectionType {
+    public var family: TrackSectionFamily {
+        switch self {
+        case .longStraight, .shortStraight, .finalStraight:
+            return .straight
+        case .heavyBrakingZone:
+            return .braking
+        case .hairpin, .slowCorner, .mediumCorner, .fastCorner, .technicalSector:
+            return .corner
+        case .elevationClimb, .elevationDrop:
+            return .elevation
+        case .bumpySector:
+            return .bumpy
+        }
+    }
+}
+
+extension Sequence where Element == TrackSectionType {
+    /// Families present, most common first. Ties break on
+    /// `TrackSectionFamily.allCases` order, so one circuit always yields
+    /// one sentence.
+    public var composition: [(family: TrackSectionFamily, count: Int)] {
+        var counts: [TrackSectionFamily: Int] = [:]
+        for section in self { counts[section.family, default: 0] += 1 }
+        return TrackSectionFamily.allCases
+            .enumerated()
+            .compactMap { order, family in
+                counts[family].map { (order: order, family: family, count: $0) }
+            }
+            .sorted { $0.count != $1.count ? $0.count > $1.count : $0.order < $1.order }
+            .map { (family: $0.family, count: $0.count) }
+    }
+
+    /// What this circuit is made of, in the words a player would use:
+    /// "4 corners · 3 straights · 2 braking zones".
+    ///
+    /// The bar strip in the UI cannot explain itself — no row of eleven
+    /// rectangles can, and the person who designed it still had to ask
+    /// what it meant. This is the line that decodes it, and the bars are
+    /// coloured by the families it names.
+    public func compositionSummary(limit: Int = 3) -> String {
+        composition.prefix(limit)
+            .map { "\($0.count) \($0.count == 1 ? $0.family.singular : $0.family.plural)" }
+            .joined(separator: " · ")
+    }
+}

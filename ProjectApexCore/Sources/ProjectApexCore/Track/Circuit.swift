@@ -147,3 +147,13 @@ public nonisolated struct Circuit: Codable, Hashable, Sendable, Identifiable {
         ]
     )
 }
+
+// MARK: - Composition
+
+extension Circuit {
+    /// See `Sequence.compositionSummary(limit:)`. Sugar so views can say
+    /// `circuit.compositionSummary()` beside the bar strip.
+    public func compositionSummary(limit: Int = 3) -> String {
+        sections.compositionSummary(limit: limit)
+    }
+}

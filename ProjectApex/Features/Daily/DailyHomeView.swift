@@ -197,9 +197,18 @@ struct DailyHomeView: View {
                 .padding(.top, 10)
                 .padding(.trailing, 16)
 
-                // ── Circuit section bars
-                sectionBars(viewModel.challenge.circuit)
-                    .padding(.trailing, 16)
+                // ── Circuit profile strip, and what it says in words
+                VStack(alignment: .leading, spacing: 6) {
+                    CircuitSectionBars(
+                        sections: viewModel.challenge.circuit.sections,
+                        height: 4
+                    )
+                    Text(viewModel.challenge.circuit.compositionSummary())
+                        .font(Theme.Font.body(11, weight: .medium))
+                        .foregroundStyle(Theme.Color.muted)
+                }
+                .padding(.vertical, 10)
+                .padding(.trailing, 16)
             }
             .padding(.leading, 12)
         }
@@ -237,46 +246,6 @@ struct DailyHomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-    }
-
-    // MARK: - Section bars (replaces SF symbol strip)
-
-    private func sectionBars(_ circuit: Circuit) -> some View {
-        HStack(spacing: 2) {
-            ForEach(Array(circuit.sections.enumerated()), id: \.offset) { idx, section in
-                Rectangle()
-                    .fill(idx == 0 ? Theme.Color.signal : sectionBarColor(section))
-                    .frame(width: sectionBarWidth(section), height: 4)
-            }
-        }
-        .padding(.vertical, 10)
-    }
-
-    private func sectionBarWidth(_ section: TrackSectionType) -> CGFloat {
-        switch section {
-        case .longStraight:                     return 22
-        case .finalStraight:                    return 18
-        case .shortStraight:                    return 9
-        case .heavyBrakingZone:                 return 11
-        case .hairpin:                          return 8
-        case .fastCorner:                       return 18
-        case .mediumCorner:                     return 14
-        case .slowCorner:                       return 11
-        case .technicalSector:                  return 12
-        case .elevationClimb, .elevationDrop:   return 15
-        case .bumpySector:                      return 13
-        }
-    }
-
-    private func sectionBarColor(_ section: TrackSectionType) -> Color {
-        switch section {
-        case .heavyBrakingZone, .hairpin:
-            return Theme.Color.notice.opacity(0.35)
-        case .longStraight, .finalStraight, .fastCorner:
-            return Theme.Color.cream.opacity(0.28)
-        default:
-            return Theme.Color.cream.opacity(0.14)
-        }
     }
 
     // MARK: - Streak card

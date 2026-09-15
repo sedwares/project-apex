@@ -35,24 +35,23 @@ struct CircuitContextHeader: View {
                 .apexLabel(Theme.Color.signal)
             }
 
-            // Row 2: circuit section bars + budget
-            // Bars read left→right in lap order; first bar is always
-            // signal red (entry sector) so you can orient the sequence
-            // the same way the Engineering Bay reads it.
+            // Row 2: circuit profile strip + budget.
+            // Bars read left→right in lap order, after the start tick.
             HStack(alignment: .center, spacing: 0) {
-                HStack(spacing: 2) {
-                    ForEach(Array(circuit.sections.enumerated()), id: \.offset) { idx, section in
-                        Rectangle()
-                            .fill(idx == 0 ? Theme.Color.signal : sectionBarColor(section))
-                            .frame(width: sectionBarWidth(section), height: 3)
-                    }
-                }
+                CircuitSectionBars(sections: circuit.sections)
                 Spacer(minLength: 8)
                 Text("\(budget) CR")
                     .apexData(11, weight: .medium, color: Theme.Color.muted)
             }
 
-            // Row 3: weather modifier — one sentence on how today differs
+            // Row 3: the strip above, in words. A row of eleven
+            // rectangles cannot say "this lap is mostly corners" by
+            // itself — this is the line that decodes it.
+            Text(circuit.compositionSummary())
+                .font(Theme.Font.body(10.5, weight: .medium))
+                .foregroundStyle(Theme.Color.faint)
+
+            // Row 4: weather modifier — one sentence on how today differs
             Text(weatherEffect(weather))
                 .font(Theme.Font.body(11, weight: .regular))
                 .foregroundStyle(Theme.Color.muted)
@@ -72,40 +71,6 @@ struct CircuitContextHeader: View {
         }
         .overlay(alignment: .bottom) {
             Rectangle().fill(Theme.Color.rule).frame(height: 1)
-        }
-    }
-
-    // MARK: - Section bars
-
-    /// Bar widths tuned to the visual weight of each section type.
-    /// Straights run wide; braking zones and hairpins run narrow.
-    private func sectionBarWidth(_ section: TrackSectionType) -> CGFloat {
-        switch section {
-        case .longStraight:                     return 22
-        case .finalStraight:                    return 18
-        case .shortStraight:                    return 9
-        case .heavyBrakingZone:                 return 11
-        case .hairpin:                          return 8
-        case .fastCorner:                       return 18
-        case .mediumCorner:                     return 14
-        case .slowCorner:                       return 11
-        case .technicalSector:                  return 12
-        case .elevationClimb, .elevationDrop:   return 15
-        case .bumpySector:                      return 13
-        }
-    }
-
-    /// Colour encodes section character at a glance.
-    /// Braking zones are gold-tinted (caution), speed sectors are cream,
-    /// the rest are subdued. The first bar is always signal red (see body).
-    private func sectionBarColor(_ section: TrackSectionType) -> Color {
-        switch section {
-        case .heavyBrakingZone, .hairpin:
-            return Theme.Color.notice.opacity(0.35)
-        case .longStraight, .finalStraight, .fastCorner:
-            return Theme.Color.cream.opacity(0.28)
-        default:
-            return Theme.Color.cream.opacity(0.14)
         }
     }
 
