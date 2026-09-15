@@ -36,7 +36,6 @@ struct SimulationReplayView: View {
         var heat = 0.0
         var tire = 0.0
         var speed = 0.0
-        var lapProgress = 0.0
     }
 
     private struct SectorCell {
@@ -51,6 +50,12 @@ struct SimulationReplayView: View {
     @State private var bestSector: [Int] = Array(repeating: .max, count: 3)
     @State private var previousSector: [Int] = Array(repeating: .max, count: 3)
     @State private var bestLapMillis = Int.max
+    /// When the CURRENT lap started, in wall time. The clock is computed
+    /// from this rather than from telemetry samples.
+    @State private var lapStartedAt = Date()
+    /// Which lap the sector cells on screen belong to, so a completed
+    /// lap's S3 survives long enough to be read.
+    @State private var sectorsLap = 1
     @State private var radio: String?
     @State private var scene: RaceScene?
     @State private var finished = false
@@ -78,13 +83,19 @@ struct SimulationReplayView: View {
             gauges
                 .padding(.top, 16)
 
-            Text(radio.map { "“\($0)”" } ?? " ")
-                .font(Theme.Font.body(13, weight: .regular).italic())
-                .foregroundStyle(Theme.Color.muted)
-                .frame(height: 34)
-                .padding(.horizontal, 24)
-                .multilineTextAlignment(.center)
-                .animation(.easeInOut(duration: 0.3), value: radio)
+            ZStack {
+                if let radio {
+                    Text("“\(radio)”")
+                        .font(Theme.Font.body(13, weight: .regular).italic())
+                        .foregroundStyle(Theme.Color.muted)
+                        .multilineTextAlignment(.center)
+                        .id(radio)
+                        .transition(.opacity)
+                }
+            }
+            .frame(height: 34)
+            .padding(.horizontal, 24)
+            .animation(.easeInOut(duration: 0.25), value: radio)
 
             Spacer(minLength: 0)
 
@@ -125,21 +136,36 @@ struct SimulationReplayView: View {
 
     // MARK: - Timing tower
 
-    /// The running clock sweeps this lap's REAL time — it is the result
-    /// being played back, not a stopwatch.
-    private var runningLapMillis: Int {
+    /// The running clock sweeps this lap's REAL time.
+    ///
+    /// It used to be driven by `sample.runProgress`, which is a
+    /// QUANTISED value — Core emits one telemetry sample per track
+    /// section, delivered at 12 Hz — so the clock inherited those steps
+    /// and visibly jumped rather than ran. Worse, a sample landing near
+    /// a lap boundary made `(runProgress × laps) mod 1` collapse to
+    /// zero, so the clock read 0:00.000 with two sectors already posted.
+    ///
+    /// Playback is deterministic: lap N takes exactly its own
+    /// `timeMillis`, played over `secondsPerLap` of wall time. So the
+    /// clock needs no telemetry at all — just when this lap began.
+    private func clockMillis(at date: Date) -> Int {
         let target = result.lapResults.indices.contains(lap - 1)
             ? result.lapResults[lap - 1].timeMillis
             : 0
-        return Int(Double(target) * min(max(readout.lapProgress, 0), 1))
+        if finished { return target }
+        let elapsed = date.timeIntervalSince(lapStartedAt)
+        let fraction = min(max(elapsed / secondsPerLap, 0), 1)
+        return Int(Double(target) * fraction)
     }
 
     private var timingTower: some View {
         VStack(spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(FixedPoint.formatLapTime(millis: runningLapMillis))
-                    .apexData(34, weight: .bold)
-                    .monospacedDigit()
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: finished)) { ctx in
+                    Text(FixedPoint.formatLapTime(millis: clockMillis(at: ctx.date)))
+                        .apexData(34, weight: .bold)
+                        .monospacedDigit()
+                }
                 Spacer(minLength: 8)
                 VStack(alignment: .trailing, spacing: 1) {
                     Text("SPEED").apexLabel(Theme.Color.faint)
@@ -253,6 +279,7 @@ struct SimulationReplayView: View {
     // MARK: - Scene wiring
 
     private func buildScene() {
+        lapStartedAt = Date()
         let sections = challenge.circuit.sections
         let samples = TelemetryTimeline.samples(for: result, sectionsPerLap: sections.count)
         let radioFeed = FeedbackEngine.radioMessages(for: result, weather: challenge.weather)
@@ -273,8 +300,6 @@ struct SimulationReplayView: View {
             next.heat = sample.heat
             next.tire = sample.tireLife
             next.speed = speed
-            next.lapProgress = (sample.runProgress * Double(totalLaps))
-                .truncatingRemainder(dividingBy: 1.0)
             readout = next
 
             // Fire any radio message whose moment has arrived.
@@ -306,15 +331,13 @@ struct SimulationReplayView: View {
             }
             if completed < totalLaps {
                 lap = completed + 1
-                previousSector = (0..<3).map { sectors[$0].millis ?? Int.max }
-                sectors = Array(repeating: SectorCell(), count: 3)
+                lapStartedAt = Date()
             }
         }
 
         scene.onFinished = {
             radio = nil
             finished = true
-            readout.lapProgress = 1
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) { onFinished() }
         }
@@ -325,6 +348,15 @@ struct SimulationReplayView: View {
     private func recordSector(lap lapNumber: Int, sector: Int) {
         guard result.lapResults.indices.contains(lapNumber - 1),
               sectors.indices.contains(sector) else { return }
+
+        // First split of a new lap: retire the previous lap's cells now,
+        // not when that lap ended. S3 was previously written and wiped
+        // in the same frame, so it never appeared at all.
+        if lapNumber != sectorsLap {
+            previousSector = (0..<3).map { sectors[$0].millis ?? Int.max }
+            sectors = Array(repeating: SectorCell(), count: 3)
+            sectorsLap = lapNumber
+        }
         let times = result.lapResults[lapNumber - 1].sectorTimesMillis
         guard times.indices.contains(sector) else { return }
         let t = times[sector]
