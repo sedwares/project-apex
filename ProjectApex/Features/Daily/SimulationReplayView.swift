@@ -282,7 +282,10 @@ struct SimulationReplayView: View {
             : (isCurrent ? Theme.Color.signal : Theme.Color.rule)
 
         return HStack(spacing: 0) {
-            Rectangle().fill(stripe).frame(width: 3)
+            Rectangle()
+                .fill(stripe)
+                .frame(width: 3)
+                .animation(.easeOut(duration: 0.3), value: stripe)
             HStack(spacing: 8) {
                 Text("Lap \(n)")
                     .font(Theme.Font.body(13.5))
@@ -296,14 +299,23 @@ struct SimulationReplayView: View {
                         .font(Theme.Font.label(9))
                         .tracking(1.2)
                         .foregroundStyle(Theme.Color.session)
+                        .transition(.opacity)
                 }
+                // .identity, not the default interpolation: SwiftUI
+                // otherwise MORPHS the placeholder into the time, and a
+                // dash crossfading over digits renders as a line struck
+                // through the lap time. A timing board should post a
+                // time, not dissolve into one.
                 if done {
                     Text(FixedPoint.formatLapTime(millis: millis))
                         .apexData(14, weight: .bold,
                                   color: isFastest ? Theme.Color.session : Theme.Color.cream)
                         .monospacedDigit()
+                        .contentTransition(.identity)
                 } else {
-                    Text("—").apexData(14, weight: .bold, color: Theme.Color.faint)
+                    Text("—")
+                        .apexData(14, weight: .bold, color: Theme.Color.faint)
+                        .contentTransition(.identity)
                 }
             }
             .padding(.leading, 10)
@@ -311,7 +323,6 @@ struct SimulationReplayView: View {
             .padding(.vertical, 8)
         }
         .background(Theme.Color.panel)
-        .animation(.easeOut(duration: 0.25), value: done)
     }
 
     /// Same words the debrief uses for the same three laps.
