@@ -83,6 +83,9 @@ struct SimulationReplayView: View {
             gauges
                 .padding(.top, 16)
 
+            lapBoard
+                .padding(.top, 18)
+
             ZStack {
                 if let radio {
                     Text("“\(radio)”")
@@ -228,6 +231,96 @@ struct SimulationReplayView: View {
     private func secondsText(_ millis: Int) -> String {
         let a = abs(millis)
         return "\(a / 1000).\(String(format: "%03d", a % 1000))"
+    }
+
+    // MARK: - Lap board
+
+    /// The run so far, one row per lap, filling in as each is completed.
+    ///
+    /// It lives here because the lower half of this screen was empty —
+    /// the timing tower reports the CURRENT lap and nothing reported the
+    /// run. A broadcast always shows both, and the board gives the
+    /// replay somewhere to arrive: it is full exactly when the race
+    /// ends. The wording matches the debrief's own lap roles, so the
+    /// screen the player lands on next reads as a continuation rather
+    /// than a different account of the same three laps.
+    private var lapBoard: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("This run").apexLabel(Theme.Color.faint)
+                Spacer()
+            }
+            .padding(.horizontal, 2)
+            .padding(.bottom, 6)
+
+            VStack(spacing: 1) {
+                ForEach(1...totalLaps, id: \.self) { n in lapRow(n) }
+            }
+        }
+        .padding(.horizontal, Theme.Metric.gutter)
+    }
+
+    private func isComplete(_ n: Int) -> Bool { finished || n < lap }
+
+    /// Fastest lap SO FAR. Reading it from the finished result would
+    /// print the answer before the car has driven it.
+    private var fastestCompletedLap: Int? {
+        let done = (1...totalLaps).filter(isComplete)
+        guard !done.isEmpty else { return nil }
+        return done.min { a, b in
+            result.lapResults[a - 1].timeMillis < result.lapResults[b - 1].timeMillis
+        }
+    }
+
+    private func lapRow(_ n: Int) -> some View {
+        let done = isComplete(n)
+        let isCurrent = n == lap && !finished
+        let isFastest = done && n == fastestCompletedLap && totalLaps > 1
+        let millis = result.lapResults.indices.contains(n - 1)
+            ? result.lapResults[n - 1].timeMillis : 0
+        let stripe: Color = isFastest ? Theme.Color.session
+            : (isCurrent ? Theme.Color.signal : Theme.Color.rule)
+
+        return HStack(spacing: 0) {
+            Rectangle().fill(stripe).frame(width: 3)
+            HStack(spacing: 8) {
+                Text("Lap \(n)")
+                    .font(Theme.Font.body(13.5))
+                    .foregroundStyle(done || isCurrent ? Theme.Color.cream : Theme.Color.faint)
+                Text(lapRole(n))
+                    .font(Theme.Font.body(11, weight: .regular))
+                    .foregroundStyle(Theme.Color.faint)
+                Spacer(minLength: 8)
+                if isFastest {
+                    Text("FL")
+                        .font(Theme.Font.label(9))
+                        .tracking(1.2)
+                        .foregroundStyle(Theme.Color.session)
+                }
+                if done {
+                    Text(FixedPoint.formatLapTime(millis: millis))
+                        .apexData(14, weight: .bold,
+                                  color: isFastest ? Theme.Color.session : Theme.Color.cream)
+                        .monospacedDigit()
+                } else {
+                    Text("—").apexData(14, weight: .bold, color: Theme.Color.faint)
+                }
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 12)
+            .padding(.vertical, 8)
+        }
+        .background(Theme.Color.panel)
+        .animation(.easeOut(duration: 0.25), value: done)
+    }
+
+    /// Same words the debrief uses for the same three laps.
+    private func lapRole(_ n: Int) -> String {
+        switch n {
+        case 1: return "warmup"
+        case 2: return "peak"
+        default: return "wear & heat"
+        }
     }
 
     // MARK: - Gauges
