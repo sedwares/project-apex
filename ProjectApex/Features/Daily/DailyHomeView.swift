@@ -50,7 +50,7 @@ struct DailyHomeView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.Color.ink)
+            .background(backdrop)
             .navigationTitle("Project Apex")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.Color.ink, for: .navigationBar)
@@ -131,10 +131,86 @@ struct DailyHomeView: View {
                     }
 
                     actionButtons(viewModel)
+
+                    circuitCard(viewModel)
                 }
                 .padding(.top, 18)
+                .padding(.bottom, 24)
             }
         }
+    }
+
+    // MARK: - Backdrop
+
+    /// A flat black rectangle reads as an empty view; a faint measured
+    /// grid reads as a monitor on a pit wall. The vignette then makes
+    /// the middle of the screen the brightest part of it, so the eye
+    /// starts on the day number rather than wandering the edges.
+    ///
+    /// Both are deliberately near-invisible in isolation — they are
+    /// meant to be felt, not read — and both match the replay, so the
+    /// two screens feel like one instrument.
+    private var backdrop: some View {
+        ZStack {
+            Theme.Color.ink
+            Canvas { context, size in
+                var grid = Path()
+                let step: CGFloat = 34
+                var x: CGFloat = 0
+                while x <= size.width {
+                    grid.move(to: CGPoint(x: x, y: 0))
+                    grid.addLine(to: CGPoint(x: x, y: size.height))
+                    x += step
+                }
+                var y: CGFloat = 0
+                while y <= size.height {
+                    grid.move(to: CGPoint(x: 0, y: y))
+                    grid.addLine(to: CGPoint(x: size.width, y: y))
+                    y += step
+                }
+                context.stroke(grid,
+                               with: .color(Theme.Color.cream.opacity(0.030)),
+                               lineWidth: 1)
+            }
+            RadialGradient(
+                colors: [.clear, Color.black.opacity(0.42)],
+                center: .center, startRadius: 140, endRadius: 560
+            )
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    // MARK: - Circuit map
+
+    /// The track you are about to build a car for.
+    ///
+    /// Until now the shape only existed in the replay, which meant you
+    /// saw the circuit AFTER you had finished engineering for it. The
+    /// bar strip in the header says what the lap is made OF; this says
+    /// what it looks like.
+    private func circuitCard(_ viewModel: DailyViewModel) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Today's circuit").apexLabel(Theme.Color.muted)
+                Spacer()
+                Text(viewModel.challenge.circuit.name)
+                    .apexData(11, weight: .medium, color: Theme.Color.faint)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+
+            CircuitMapView(circuit: viewModel.challenge.circuit)
+                .frame(height: 180)
+                .padding(.horizontal, 6)
+                .padding(.bottom, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .background(Theme.Color.panel)
+        .overlay(alignment: .leading) {
+            Rectangle().fill(Theme.Color.signal).frame(width: 3)
+        }
+        .padding(.horizontal, Theme.Metric.gutter)
     }
 
     // MARK: - F1 Timing Tower Header

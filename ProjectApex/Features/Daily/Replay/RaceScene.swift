@@ -186,20 +186,11 @@ final class RaceScene: SKScene {
         let stripe = CGRect(x: -4.0, y: -2.0, width: 8.0, height: 4.0)
         var drew = false
 
-        for span in loop.sectionArcs {
-            guard let coverage = Self.kerbCoverage(span.section) else { continue }
-            let width = span.end - span.start
-            let covered = width * coverage
-            let from = span.start + (width - covered) / 2
-            let count = max(2, Int(covered * 105))
-            for i in 0..<count {
-                let t = from + covered * (Double(i) + 0.5) / Double(count)
-                let at = loop.apexSidePoint(at: t, offset: 7.5)
-                let transform = CGAffineTransform(translationX: at.x, y: at.y)
-                    .rotated(by: loop.heading(at: t))
-                (i % 2 == 0 ? red : white).addRect(stripe, transform: transform)
-                drew = true
-            }
+        for kerb in loop.kerbStripes(offset: 7.5) {
+            let transform = CGAffineTransform(translationX: kerb.point.x, y: kerb.point.y)
+                .rotated(by: kerb.heading)
+            (kerb.isRed ? red : white).addRect(stripe, transform: transform)
+            drew = true
         }
         guard drew else { return }
 
@@ -209,22 +200,6 @@ final class RaceScene: SKScene {
             node.strokeColor = .clear
             node.zPosition = 3
             addChild(node)
-        }
-    }
-
-    /// How much of a section's arc carries kerb, or nil for none.
-    /// Tighter corner, more kerb — a hairpin is almost all apex, while a
-    /// fast corner is taken flat and gets nothing at all.
-    static func kerbCoverage(_ section: TrackSectionType) -> Double? {
-        switch section {
-        case .hairpin:          return 0.66
-        case .slowCorner:       return 0.56
-        case .technicalSector:  return 0.50
-        case .heavyBrakingZone: return 0.46
-        case .mediumCorner:     return 0.38
-        case .fastCorner, .longStraight, .shortStraight, .finalStraight,
-             .elevationClimb, .elevationDrop, .bumpySector:
-            return nil
         }
     }
 

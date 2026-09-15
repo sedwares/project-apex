@@ -302,6 +302,58 @@ struct CircuitLoop {
                        y: p.y + sin(normal) * offset)
     }
 
+    // MARK: - Kerbs
+
+    /// How much of a section's arc carries kerb, or nil for none.
+    /// Tighter corner, more kerb — a hairpin is almost all apex, while a
+    /// fast corner is taken flat and gets nothing.
+    ///
+    /// This lives here rather than in the scene because the replay is no
+    /// longer the only surface that draws a circuit. Two copies of a
+    /// table like this is how the sector thresholds ended up
+    /// contradicting the debrief prose.
+    static func kerbCoverage(_ section: TrackSectionType) -> Double? {
+        switch section {
+        case .hairpin:          return 0.66
+        case .slowCorner:       return 0.56
+        case .technicalSector:  return 0.50
+        case .heavyBrakingZone: return 0.46
+        case .mediumCorner:     return 0.38
+        case .fastCorner, .longStraight, .shortStraight, .finalStraight,
+             .elevationClimb, .elevationDrop, .bumpySector:
+            return nil
+        }
+    }
+
+    struct KerbStripe {
+        let point: CGPoint
+        let heading: CGFloat
+        /// Kerbs alternate; this says which colour this one takes.
+        let isRed: Bool
+    }
+
+    /// Every kerb stripe on the lap, already placed and oriented. The
+    /// caller only decides how to paint them.
+    func kerbStripes(offset: CGFloat, density: Double = 105) -> [KerbStripe] {
+        var stripes: [KerbStripe] = []
+        for span in sectionArcs {
+            guard let coverage = Self.kerbCoverage(span.section) else { continue }
+            let width = span.end - span.start
+            let covered = width * coverage
+            let from = span.start + (width - covered) / 2
+            let count = max(2, Int(covered * density))
+            for i in 0..<count {
+                let t = from + covered * (Double(i) + 0.5) / Double(count)
+                stripes.append(KerbStripe(
+                    point: apexSidePoint(at: t, offset: offset),
+                    heading: heading(at: t),
+                    isRed: i % 2 == 0
+                ))
+            }
+        }
+        return stripes
+    }
+
     /// The closed loop as a path, sampled into `steps` segments.
     func path(steps: Int = 320) -> CGPath {
         let path = CGMutablePath()
