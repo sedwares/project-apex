@@ -40,7 +40,35 @@ final class TestSessionViewModel {
     private(set) var conditions: Conditions
     private(set) var circuit: Circuit
     private(set) var selections: [EngineeringCategoryID: EngineeringOptionID] = [:]
-    private(set) var lastResult: SimulationResult?
+
+    // ── THE LAST RUN, AND WHAT IT WAS A RUN OF ─────────────────────
+    //
+    // These used to be thrown away by select(): change one option and
+    // the result, the solve and the engineer's advice were all set to
+    // nil. Changing BACK did not bring them back, because loadAdvice()
+    // guards on lastResult and there was no longer a result to guard
+    // on — so the read stayed gone until another run, which is the bug
+    // Sedar hit by toggling Suspension to Stiff and back to Balanced.
+    //
+    // Discarding was never right. This simulation is deterministic: a
+    // result computed for a setup is correct for that setup forever,
+    // which is the same property run() already relies on. So the run is
+    // KEPT, along with the selections that produced it, and the
+    // accessors below simply stop reporting it while the car on screen
+    // is a different car. Wander off, come back, and your read is
+    // waiting where you left it.
+    private var storedResult: SimulationResult?
+    private var storedAnalysis: DayAnalysis?
+    private var storedAdvice: EngineerAdvice?
+    /// The setup `storedResult` was simulated from.
+    private var runSelections: [EngineeringCategoryID: EngineeringOptionID] = [:]
+
+    /// Whether the last run still describes what is on screen.
+    var isRunCurrent: Bool {
+        storedResult != nil && runSelections == selections
+    }
+
+    var lastResult: SimulationResult? { isRunCurrent ? storedResult : nil }
     /// Set when a run should present the replay ceremony; the view
     /// observes this and clears it when the replay is dismissed.
     var replayResult: SimulationResult?
@@ -191,7 +219,7 @@ final class TestSessionViewModel {
     /// a full day in 12–45ms — and it buys the practice modes a target
     /// worth measuring against, plus a real gap and "possible setups
     /// beaten".
-    private(set) var analysis: DayAnalysis?
+    var analysis: DayAnalysis? { isRunCurrent ? storedAnalysis : nil }
     private var isAnalysisLoading = false
 
     /// Off the main actor: the solve walks the whole legal space, and
@@ -202,7 +230,7 @@ final class TestSessionViewModel {
         defer { isAnalysisLoading = false }
         let challenge = challengeAdapter
         let playerAverage = lastResult.averageLapTimeMillis
-        analysis = await Task.detached(priority: .userInitiated) {
+        storedAnalysis = await Task.detached(priority: .userInitiated) {
             DayAnalyzer.analyze(
                 challenge: challenge,
                 playerAverageLapMillis: playerAverage
@@ -222,7 +250,7 @@ final class TestSessionViewModel {
 
     /// The computed next test for the current run. nil while it's being
     /// worked out, or when nothing meaningful improves the setup.
-    private(set) var advice: EngineerAdvice?
+    var advice: EngineerAdvice? { isRunCurrent ? storedAdvice : nil }
     private var isAdviceLoading = false
 
     /// ~128 simulations. Off the main actor so the run bar stays live.
@@ -232,7 +260,7 @@ final class TestSessionViewModel {
         defer { isAdviceLoading = false }
         let challenge = challengeAdapter
         let leading = FeedbackEngine.leadingEvent(in: lastResult)
-        advice = await Task.detached(priority: .userInitiated) {
+        storedAdvice = await Task.detached(priority: .userInitiated) {
             SetupAdvisor.bestAdvice(
                 for: lastResult.setup, challenge: challenge, leadingEvent: leading
             )
@@ -245,9 +273,7 @@ final class TestSessionViewModel {
     func applyAdvice() {
         guard let advice else { return }
         selections = advice.resultingSelections
-        lastResult = nil
-        self.advice = nil
-        run()
+        run()   // records the new run and the setup it belongs to
     }
 
     func selectedOption(in category: EngineeringCategoryID) -> EngineeringOptionID? {
@@ -259,8 +285,9 @@ final class TestSessionViewModel {
     func select(_ optionID: EngineeringOptionID) {
         let option = OptionLibrary.option(optionID)
         selections[option.category] = optionID
-        lastResult = nil // stale once the setup changes
-        advice = nil     // and so is the advice derived from it
+        // Nothing is discarded. `isRunCurrent` now reports false, which
+        // hides the run and its read; restoring this option restores
+        // them, because the result was never destroyed.
     }
 
     /// Unlimited, unofficial, instant.
@@ -276,9 +303,10 @@ final class TestSessionViewModel {
             let result = SimulationEngine.simulate(
                 setup: setup, circuit: circuit, weather: conditions.weather
             )
-            lastResult = result
+            storedResult = result
+            runSelections = selections
             replayResult = result
-            advice = nil   // recomputed for the new result by the view's task
+            storedAdvice = nil   // recomputed for the new run by the view's task
 
             // Every run is recorded, repeats included.
             //
@@ -295,7 +323,7 @@ final class TestSessionViewModel {
             // OPTIMUM is unchanged too — but DayAnalyzer folds the
             // player's own average into beatPercent and the gap, so it
             // has to be recomputed.
-            analysis = nil
+            storedAnalysis = nil
 
             runCount += 1
             runHistory.insert(SessionRun(number: runCount, result: result), at: 0)
@@ -334,9 +362,10 @@ final class TestSessionViewModel {
     }
 
     private func resetSession() {
-        lastResult = nil
-        advice = nil
-        analysis = nil
+        storedResult = nil
+        storedAdvice = nil
+        storedAnalysis = nil
+        runSelections = [:]
         bestAverageMillis = nil
         runCount = 0
         runHistory = []
