@@ -19,6 +19,19 @@
 //    shrinks the legal space to 4,374 before the budget filter, so the
 //    old copy was simply wrong on regulated days.
 //
+//  F1 RESTYLE (pass 7):
+//  • Header: timing tower treatment — 4px red left stripe, setup
+//    identity and "ASSIGNMENT COMPLETE" left-aligned, fastest lap
+//    surfaced in session purple (F1 fastest-lap convention).
+//  • Standing: coloured left stripe encodes rank quality at a glance
+//    (purple top 10%, green top third, cream otherwise).
+//  • Lap rows: timing tower entries; fastest lap marked with purple
+//    FL stripe and "FL" badge, matching the broadcast convention.
+//  • Sectors: tierColor updated — optimal/ahead now session purple
+//    (was gain green), matching F1's purple sector-record coding.
+//  • Chief Engineer card: rule-tinted left stripe, quote styling.
+//  • Experiment CTA: signal red left stripe, flush-edge treatment.
+//
 
 import SwiftUI
 import ProjectApexCore
@@ -77,23 +90,55 @@ struct RaceDebriefView: View {
 
     // MARK: - Header
 
+    /// Timing tower treatment: 4px signal-red left stripe, setup identity
+    /// and status label left-aligned, fastest lap in session purple.
     private func headerSection(_ result: SimulationResult) -> some View {
         Section {
-            VStack(spacing: 5) {
-                Text("Assignment complete").apexLabel(Theme.Color.signal)
-                Text(FixedPoint.formatLapTime(millis: result.averageLapTimeMillis))
-                    .apexData(40, weight: .bold)
-                Text("Average · Fastest \(FixedPoint.formatLapTime(millis: result.fastestLapTimeMillis))")
-                    .apexData(12, weight: .medium, color: Theme.Color.muted)
-                Text(result.setupIdentity.displayText)
-                    .apexDisplay(17)
-                    .padding(.top, 8)
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(Theme.Color.signal)
+                    .frame(width: 4)
+                VStack(alignment: .leading, spacing: 10) {
+                    // Status + identity — top line of the tower entry
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("ASSIGNMENT COMPLETE")
+                            .font(Theme.Font.display(10))
+                            .tracking(2.0)
+                            .foregroundStyle(Theme.Color.signal)
+                        Text(result.setupIdentity.displayText)
+                            .apexDisplay(19)
+                    }
+
+                    // Lap times: average (large left) / fastest FL (right)
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(FixedPoint.formatLapTime(millis: result.averageLapTimeMillis))
+                                .apexData(38, weight: .bold)
+                            Text("Average lap")
+                                .apexData(11, weight: .medium, color: Theme.Color.muted)
+                        }
+                        Spacer(minLength: 16)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            HStack(spacing: 5) {
+                                Image(systemName: "timer")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(Theme.Color.session)
+                                Text(FixedPoint.formatLapTime(millis: result.fastestLapTimeMillis))
+                                    .apexData(20, weight: .bold, color: Theme.Color.session)
+                            }
+                            Text("Fastest lap")
+                                .apexData(11, weight: .medium, color: Theme.Color.muted)
+                        }
+                    }
+                }
+                .padding(.leading, 12)
+                .padding(.trailing, 16)
+                .padding(.vertical, 14)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Theme.Color.panel)
+            .listRowSeparator(.hidden)
         }
-        .listRowBackground(Theme.Color.panel)
-        .listRowSeparator(.hidden)
     }
 
     // MARK: - Global standing
@@ -124,10 +169,6 @@ struct RaceDebriefView: View {
                         .font(Theme.Font.body(13))
                         .foregroundStyle(Theme.Color.signal)
                     }
-                    // Never shipped to players — but during development
-                    // the difference between a rules rejection and a
-                    // missing index is the whole diagnosis, and the
-                    // friendly sentence above erases it.
                     #if DEBUG
                     Text(reason)
                         .font(Theme.Font.body(10.5, weight: .regular))
@@ -139,69 +180,100 @@ struct RaceDebriefView: View {
                 .listRowBackground(Theme.Color.panel)
         case .loaded(let standing):
             Section {
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        if standing.totalEntries == 1 {
-                            Text("Rank #1").apexDisplay(22)
-                            Text("Only engineer today — set the benchmark")
-                                .font(Theme.Font.body(11.5, weight: .regular))
-                                .foregroundStyle(Theme.Color.muted)
-                        } else if standing.totalEntries < 10 {
-                            Text("Rank #\(standing.rank) of \(standing.totalEntries)")
-                                .apexDisplay(22)
-                            Text("Early field"
-                                 + (standing.tieCount > 1 ? " · \(standing.tieCount) tied" : ""))
-                                .font(Theme.Font.body(11.5, weight: .regular))
-                                .foregroundStyle(Theme.Color.muted)
-                        } else {
-                            Text("Top \(standing.topPercent)% of engineers")
-                                .apexDisplay(22)
-                            Text("Rank #\(standing.rank) of \(standing.totalEntries)"
-                                 + (standing.tieCount > 1 ? " · \(standing.tieCount) tied" : ""))
-                                .font(Theme.Font.body(11.5, weight: .regular))
-                                .foregroundStyle(Theme.Color.muted)
+                // Timing tower: stripe colour encodes rank quality.
+                // Purple = top 10% (exceptional), green = top third (strong),
+                // gold = early field / sole entry, cream = mid-pack.
+                HStack(spacing: 0) {
+                    Rectangle()
+                        .fill(standingStripeColor(
+                            totalEntries: standing.totalEntries,
+                            topPercent: standing.topPercent
+                        ))
+                        .frame(width: 3)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            if standing.totalEntries == 1 {
+                                Text("Rank #1").apexDisplay(22)
+                                Text("Only engineer today — set the benchmark")
+                                    .font(Theme.Font.body(11.5, weight: .regular))
+                                    .foregroundStyle(Theme.Color.muted)
+                            } else if standing.totalEntries < 10 {
+                                Text("Rank #\(standing.rank) of \(standing.totalEntries)")
+                                    .apexDisplay(22)
+                                Text("Early field"
+                                     + (standing.tieCount > 1 ? " · \(standing.tieCount) tied" : ""))
+                                    .font(Theme.Font.body(11.5, weight: .regular))
+                                    .foregroundStyle(Theme.Color.muted)
+                            } else {
+                                Text("Top \(standing.topPercent)% of engineers")
+                                    .apexDisplay(22)
+                                Text("Rank #\(standing.rank) of \(standing.totalEntries)"
+                                     + (standing.tieCount > 1 ? " · \(standing.tieCount) tied" : ""))
+                                    .font(Theme.Font.body(11.5, weight: .regular))
+                                    .foregroundStyle(Theme.Color.muted)
+                            }
+                        }
+                        Spacer()
+                        if let service = viewModel.leaderboardService {
+                            NavigationLink {
+                                LeaderboardView(
+                                    dateKey: viewModel.challenge.dateKey,
+                                    uid: viewModel.uid,
+                                    standing: standing,
+                                    service: service
+                                )
+                            } label: {
+                                Text("Full board").apexLabel(Theme.Color.signal)
+                            }
+                            .fixedSize()
                         }
                     }
-                    Spacer()
-                    if let service = viewModel.leaderboardService {
-                        NavigationLink {
-                            LeaderboardView(
-                                dateKey: viewModel.challenge.dateKey,
-                                uid: viewModel.uid,
-                                standing: standing,
-                                service: service
-                            )
-                        } label: {
-                            Text("Full board").apexLabel(Theme.Color.signal)
-                        }
-                        .fixedSize()
-                    }
+                    .padding(.vertical, 12)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 16)
                 }
-            } header: { Text("Global standing").apexLabel(Theme.Color.muted) }
+                .listRowInsets(EdgeInsets())
                 .listRowBackground(Theme.Color.panel)
+            } header: { Text("Global standing").apexLabel(Theme.Color.muted) }
         }
     }
 
     // MARK: - Laps
 
+    /// Timing tower rows: fastest lap carries a session-purple stripe and
+    /// "FL" badge — the same convention F1 broadcast uses on the tower.
     private func lapsSection(_ result: SimulationResult) -> some View {
         Section {
             ForEach(result.lapResults, id: \.lapNumber) { lap in
                 let fastest = lap.timeMillis == result.fastestLapTimeMillis
-                HStack(spacing: 8) {
-                    Text("Lap \(lap.lapNumber)")
-                        .font(Theme.Font.body(14))
-                        .foregroundStyle(Theme.Color.cream)
-                    Text(lapRole(lap.lapNumber))
-                        .font(Theme.Font.body(11, weight: .regular))
-                        .foregroundStyle(Theme.Color.faint)
-                    Spacer()
-                    Text(FixedPoint.formatLapTime(millis: lap.timeMillis))
-                        .apexData(14, weight: fastest ? .bold : .regular,
-                                  color: fastest ? Theme.Color.cream : Theme.Color.muted)
+                HStack(spacing: 0) {
+                    Rectangle()
+                        .fill(fastest ? Theme.Color.session : Theme.Color.rule)
+                        .frame(width: 3)
+                    HStack(spacing: 8) {
+                        Text("Lap \(lap.lapNumber)")
+                            .font(Theme.Font.body(14))
+                            .foregroundStyle(Theme.Color.cream)
+                        Text(lapRole(lap.lapNumber))
+                            .font(Theme.Font.body(11, weight: .regular))
+                            .foregroundStyle(Theme.Color.faint)
+                        Spacer()
+                        if fastest {
+                            Text("FL")
+                                .font(Theme.Font.display(10))
+                                .tracking(1.2)
+                                .foregroundStyle(Theme.Color.session)
+                        }
+                        Text(FixedPoint.formatLapTime(millis: lap.timeMillis))
+                            .apexData(14, weight: fastest ? .bold : .regular,
+                                      color: fastest ? Theme.Color.session : Theme.Color.muted)
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 16)
                 }
-                .padding(.vertical, 2)
             }
+            .listRowInsets(EdgeInsets())
             .listRowBackground(Theme.Color.panel)
             .listRowSeparatorTint(Theme.Color.rule)
         } header: { Text("Laps").apexLabel(Theme.Color.muted) }
@@ -295,10 +367,6 @@ struct RaceDebriefView: View {
     /// regulation removes one option from one category, taking the
     /// structural space from 3^8 to 2×3^7 — so quoting 6,561 on a
     /// regulated day overstates what the player was actually up against.
-    /// The field the player was actually ranked against — legal setups,
-    /// not the structural space. Quoting 4,374 next to a percentage
-    /// derived from 2,099 invited exactly the kind of arithmetic
-    /// mismatch the sector chart just had to be fixed for.
     private func theoreticalBestLabel(legalCount: Int) -> String {
         "Theoretical best (all \(legalCount) legal setups)"
     }
@@ -354,7 +422,8 @@ struct RaceDebriefView: View {
                             }
                         }
                         // Diverging from a centre line: quicker-than-optimal
-                        // runs left in green, time lost runs right in red.
+                        // runs left in purple (session record), time lost
+                        // runs right in the tier colour.
                         GeometryReader { proxy in
                             let half = proxy.size.width / 2
                             let frac = Double(abs(millis)) / Double(scale)
@@ -398,26 +467,25 @@ struct RaceDebriefView: View {
         .listRowSeparatorTint(Theme.Color.rule)
     }
 
-    /// Absolute milliseconds against perfect, per lap — so the wording
-    /// can be honest about what counts as close, and can say outright
-    /// when you were quicker than the optimal car.
+    /// Both of these now read from `SectorTier` in Core rather than
+    /// carrying their own thresholds.
+    ///
+    /// Colour mapping updated (pass 7) to match F1 broadcast convention:
+    /// sectors faster than or matching the optimum are session purple
+    /// (the colour F1 uses for a sector that beats all prior times),
+    /// sectors on pace are gain green, mid-pack is cream (neutral),
+    /// bigger losses move through notice gold to signal red.
     private func tierLabel(delta: Int) -> String {
-        switch delta {
-        case ..<0: return "Ahead"
-        case 0: return "Optimal"
-        case ..<80: return "On pace"
-        case ..<350: return "Close"
-        case ..<850: return "Off pace"
-        default: return "Weak"
-        }
+        SectorTier.of(deltaMillis: delta).label
     }
 
     private func tierColor(delta: Int) -> Color {
-        switch delta {
-        case ..<80: return Theme.Color.gain
-        case ..<350: return Theme.Color.cream
-        case ..<850: return Theme.Color.notice
-        default: return Theme.Color.signal
+        switch SectorTier.of(deltaMillis: delta) {
+        case .ahead, .optimal:  return Theme.Color.session   // purple — session record
+        case .onPace:           return Theme.Color.gain       // green — personal best pace
+        case .close:            return Theme.Color.cream      // neutral
+        case .offPace:          return Theme.Color.notice     // gold — time lost
+        case .weak:             return Theme.Color.signal     // red — significant loss
         }
     }
 
@@ -427,32 +495,43 @@ struct RaceDebriefView: View {
 
     // MARK: - Chief Engineer's Report
 
+    /// The report card uses a rule-tinted left stripe (quieter than red)
+    /// to mark the prose block as a distinct voice — the engineer's
+    /// assessment, not a data row.
     @ViewBuilder
     private var reportSection: some View {
         if let feedback = viewModel.feedback {
             Section {
-                VStack(alignment: .leading, spacing: 11) {
-                    // When the Next Test card is showing, the prose drops
-                    // its recommendation sentence — otherwise the same
-                    // change, funding source and time saving get stated
-                    // twice, one line apart.
-                    Text(viewModel.advice == nil ? feedback.reportText : feedback.observationText)
-                        .font(Theme.Font.body(14, weight: .regular))
-                        .foregroundStyle(Theme.Color.cream)
-                    Text("— Chief Engineer")
-                        .font(Theme.Font.body(11, weight: .regular).italic())
-                        .foregroundStyle(Theme.Color.faint)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                HStack(spacing: 0) {
+                    Rectangle()
+                        .fill(Theme.Color.rule)
+                        .frame(width: 3)
+                    VStack(alignment: .leading, spacing: 11) {
+                        // When the Next Test card is showing, the prose drops
+                        // its recommendation sentence — otherwise the same
+                        // change, funding source and time saving get stated
+                        // twice, one line apart.
+                        Text(viewModel.advice == nil ? feedback.reportText : feedback.observationText)
+                            .font(Theme.Font.body(14, weight: .regular))
+                            .foregroundStyle(Theme.Color.cream)
+                        Text("— Chief Engineer")
+                            .font(Theme.Font.body(11, weight: .regular).italic())
+                            .foregroundStyle(Theme.Color.faint)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
 
-                    if let advice = viewModel.advice {
-                        Rectangle().fill(Theme.Color.rule).frame(height: 1)
-                        nextTestLink(advice)
+                        if let advice = viewModel.advice {
+                            Rectangle().fill(Theme.Color.rule).frame(height: 1)
+                            nextTestLink(advice)
+                        }
                     }
+                    .padding(.leading, 12)
+                    .padding(.trailing, 16)
+                    .padding(.vertical, 14)
                 }
-                .padding(.vertical, 5)
-            } header: { Text("Chief engineer's report").apexLabel(Theme.Color.muted) }
+                .listRowInsets(EdgeInsets())
                 .listRowBackground(Theme.Color.panel)
                 .listRowSeparator(.hidden)
+            } header: { Text("Chief engineer's report").apexLabel(Theme.Color.muted) }
         }
     }
 
@@ -493,31 +572,50 @@ struct RaceDebriefView: View {
         return "Next test: \(advice.upgrade.category.displayName) → \(to)"
     }
 
-    // MARK: - Experiment
+    // MARK: - Experiment CTA
 
+    /// Signal-red left stripe makes the CTA feel like a race-control
+    /// directive — the same weight as the Submit button in the Bay.
     private var experimentSection: some View {
         Section {
             NavigationLink {
                 ExperimentView(viewModel: viewModel)
             } label: {
-                HStack(spacing: 14) {
-                    Image(systemName: "flask")
-                        .font(.system(size: 20))
-                        .foregroundStyle(Theme.Color.signal)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Experiment").apexDisplay(17)
-                        Text("Replay today's assignment with another setup. Your submitted result will never change.")
-                            .font(Theme.Font.body(11.5, weight: .regular))
-                            .foregroundStyle(Theme.Color.muted)
+                HStack(spacing: 0) {
+                    Rectangle()
+                        .fill(Theme.Color.signal)
+                        .frame(width: 3)
+                    HStack(spacing: 14) {
+                        Image(systemName: "flask")
+                            .font(.system(size: 20))
+                            .foregroundStyle(Theme.Color.signal)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Experiment").apexDisplay(17)
+                            Text("Replay today's assignment with another setup. Your submitted result will never change.")
+                                .font(Theme.Font.body(11.5, weight: .regular))
+                                .foregroundStyle(Theme.Color.muted)
+                        }
                     }
+                    .padding(.vertical, 10)
+                    .padding(.leading, 12)
                 }
-                .padding(.vertical, 7)
             }
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
             .listRowBackground(Theme.Color.panel)
         }
     }
 
     // MARK: - Helpers
+
+    /// Stripe colour encodes rank quality at a glance.
+    /// Session purple = top 10% (exceptional), gain green = top third
+    /// (strong), notice gold = early/sole field, cream = mid-pack.
+    private func standingStripeColor(totalEntries: Int, topPercent: Int) -> Color {
+        guard totalEntries >= 10 else { return Theme.Color.notice }
+        if topPercent <= 10 { return Theme.Color.session }
+        if topPercent <= 33 { return Theme.Color.gain }
+        return Theme.Color.cream.opacity(0.25)
+    }
 
     private func lapRole(_ n: Int) -> String {
         switch n {

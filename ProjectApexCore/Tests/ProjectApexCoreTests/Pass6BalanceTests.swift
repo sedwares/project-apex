@@ -514,4 +514,72 @@ final class Pass6BalanceTests: XCTestCase {
                 """)
         }
     }
+
+    // MARK: - Sector tiers and honest praise
+
+    /// The boundaries themselves. RaceDebriefView used to carry a
+    /// private copy of these; if they ever drift again, the chart and
+    /// the prose can contradict each other, which is the bug this type
+    /// was created to make impossible.
+    func testSectorTierBoundaries() {
+        XCTAssertEqual(SectorTier.of(deltaMillis: -1),   .ahead)
+        XCTAssertEqual(SectorTier.of(deltaMillis: 0),    .optimal)
+        XCTAssertEqual(SectorTier.of(deltaMillis: 79),   .onPace)
+        XCTAssertEqual(SectorTier.of(deltaMillis: 80),   .close)
+        XCTAssertEqual(SectorTier.of(deltaMillis: 349),  .close)
+        XCTAssertEqual(SectorTier.of(deltaMillis: 350),  .offPace)
+        XCTAssertEqual(SectorTier.of(deltaMillis: 849),  .offPace)
+        XCTAssertEqual(SectorTier.of(deltaMillis: 850),  .weak)
+
+        // Only the first four may be called a strength.
+        XCTAssertTrue(SectorTier.ahead.isCreditable)
+        XCTAssertTrue(SectorTier.optimal.isCreditable)
+        XCTAssertTrue(SectorTier.onPace.isCreditable)
+        XCTAssertTrue(SectorTier.close.isCreditable)
+        XCTAssertFalse(SectorTier.offPace.isCreditable)
+        XCTAssertFalse(SectorTier.weak.isCreditable)
+    }
+
+    /// The observed bug, pinned.
+    ///
+    /// A real debrief printed "Sector 1 was your strongest — only
+    /// 0.957s off the optimal car" directly above a red `SECTOR 1 —
+    /// WEAK +0.957s`. The prose must not claim a strength the lap has
+    /// not earned.
+    func testStrengthsDoNotPraiseASectorThatIsStillOffThePace() {
+        let challenge = ChallengeGenerator.generate(dayNumber: 5, dateKey: "day-5")
+        // Cheapest legal option in every category — the same way the
+        // advisor tests build a baseline car. The setup barely matters
+        // here; the sector deltas are injected below.
+        var selections: [EngineeringCategoryID: EngineeringOptionID] = [:]
+        for category in EngineeringCategoryID.allCases {
+            let options = OptionLibrary.options(in: category, banned: challenge.bannedOption)
+            selections[category] = options.first!.id
+        }
+        let setup = PlayerSetup(challengeId: challenge.id, selectedOptions: selections)
+        let result = SimulationEngine.simulate(
+            setup: setup, circuit: challenge.circuit, weather: challenge.weather
+        )
+
+        // Every sector Weak — the exact shape that produced the bug.
+        let allWeak = FeedbackEngine.strengths(result: result, lostToOptimal: [957, 3279, 1315])
+        let weakLine = allWeak.first { $0.hasPrefix("Sector") }
+        XCTAssertNotNil(weakLine, "a sector line should still be produced")
+        XCTAssertFalse(
+            weakLine!.contains("your strongest"),
+            "claimed a strength while the best sector was still off the pace: \(weakLine!)"
+        )
+        XCTAssertTrue(weakLine!.contains("held up best"), "got: \(weakLine!)")
+
+        // A genuinely good sector keeps the praise.
+        let good = FeedbackEngine.strengths(result: result, lostToOptimal: [34, 671, 23])
+        let goodLine = good.first { $0.hasPrefix("Sector") }
+        XCTAssertNotNil(goodLine)
+        XCTAssertTrue(goodLine!.contains("your strongest"), "got: \(goodLine!)")
+
+        // Beating the optimal car outright is still sayable.
+        let ahead = FeedbackEngine.strengths(result: result, lostToOptimal: [1550, 3279, -284])
+        let aheadLine = ahead.first { $0.hasPrefix("Sector") }
+        XCTAssertTrue(aheadLine?.contains("beat the optimal car") == true, "got: \(aheadLine ?? "nil")")
+    }
 }

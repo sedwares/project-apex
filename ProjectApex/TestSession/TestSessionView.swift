@@ -52,6 +52,9 @@ struct TestSessionView: View {
                     if let advice = viewModel.advice {
                         adviceRow(advice)
                     }
+                    if let analysis = viewModel.analysis {
+                        efficiencyRow(analysis)
+                    }
                 } header: {
                     Text("Engineer's read").apexLabel(Theme.Color.muted)
                 }
@@ -61,12 +64,21 @@ struct TestSessionView: View {
 
             if !viewModel.runHistory.isEmpty {
                             Section {
-                                ForEach(Array(viewModel.runHistory.enumerated()), id: \.element.resultHash) { index, result in
-                                    let isBest = result.averageLapTimeMillis == viewModel.bestAverageMillis
+                                // Keyed on run.id (the monotonic run number),
+                                // NOT on resultHash. See SessionRun: the hash is
+                                // content-derived, so a repeated setup produced a
+                                // duplicate SwiftUI identity and the list rendered
+                                // some rows twice and dropped others.
+                                ForEach(viewModel.runHistory) { run in
+                                    let firstBestNumber = viewModel.runHistory
+                                        .filter { $0.result.averageLapTimeMillis == viewModel.bestAverageMillis }
+                                        .map(\.number)
+                                        .min()
+                                    let isBest = run.number == firstBestNumber
                                     HStack(alignment: .firstTextBaseline) {
                                         VStack(alignment: .leading, spacing: 2) {
                                             HStack(spacing: 5) {
-                                                Text("Run \(viewModel.runHistory.count - index)")
+                                                Text("Run \(run.number)")
                                                     .font(Theme.Font.body(13.5))
                                                     .foregroundStyle(Theme.Color.cream)
                                                 if isBest {
@@ -77,14 +89,28 @@ struct TestSessionView: View {
                                             }
                                             // What was actually tested — turns the
                                             // log from bare numbers into a notebook.
-                                            Text(result.setupIdentity.displayText)
+                                            Text(run.result.setupIdentity.displayText)
                                                 .font(Theme.Font.body(11, weight: .regular))
                                                 .foregroundStyle(Theme.Color.faint)
                                         }
                                         Spacer()
-                                        Text(FixedPoint.formatLapTime(millis: result.averageLapTimeMillis))
-                                            .apexData(14, weight: isBest ? .bold : .regular,
-                                                      color: isBest ? Theme.Color.cream : Theme.Color.muted)
+                                        VStack(alignment: .trailing, spacing: 2) {
+                                            Text(FixedPoint.formatLapTime(millis: run.result.averageLapTimeMillis))
+                                                .apexData(14, weight: isBest ? .bold : .regular,
+                                                          color: isBest ? Theme.Color.cream : Theme.Color.muted)
+                                            // Gap to the session best. MUTED, not
+                                            // Theme.Color.delta() — the delta helper
+                                            // paints anything positive red, and every
+                                            // row but one is positive here by
+                                            // construction. A log where nine of ten
+                                            // rows are red is the "everything is an
+                                            // alarm" failure again; this is a
+                                            // reference number, not a warning.
+                                            if let best = viewModel.bestAverageMillis, !isBest {
+                                                Text("+" + secondsText(run.result.averageLapTimeMillis - best))
+                                                    .apexData(11, weight: .medium, color: Theme.Color.faint)
+                                            }
+                                        }
                                     }
                                     .padding(.vertical, 2)
                                 }
@@ -107,16 +133,21 @@ struct TestSessionView: View {
         // hash rather than on appearance, so re-running the same setup
         // (identical hash, by determinism) doesn't re-do the search.
         .task(id: viewModel.lastResult?.resultHash) {
+            // Advice first, deliberately. It is ~128 simulations against
+            // the analysis's few thousand, so the actionable line lands
+            // almost immediately and the efficiency numbers fill in
+            // behind it rather than holding it up.
             await viewModel.loadAdvice()
+            await viewModel.loadAnalysis()
         }
-        .safeAreaInset(edge: .top) {
+        .safeAreaInset(edge: .top, spacing: 0) {
             CircuitContextHeader(
                 circuit: viewModel.circuit,
                 weather: viewModel.conditions.weather,
                 budget: viewModel.budget
             )
         }
-        .safeAreaInset(edge: .bottom) { runBar }
+        .safeAreaInset(edge: .bottom, spacing: 0) { runBar }
         .fullScreenCover(item: Binding(
             get: { viewModel.replayResult.map { ReplayResultWrapper(result: $0) } },
             set: { if $0 == nil { viewModel.replayResult = nil } }
@@ -272,6 +303,45 @@ struct TestSessionView: View {
                 if let downside { Text(downside).foregroundStyle(Theme.Color.muted) }
             }
             .font(Theme.Font.body(11, weight: .medium))
+        }
+    }
+
+    /// What the Daily's debrief has always shown and the practice modes
+    /// never did: how far off the best legal setup you actually are, and
+    /// how much of the field you beat.
+    ///
+    /// This is only possible because the lab now runs the same
+    /// exhaustive solve. Before, the only yardstick here was the neutral
+    /// car — a setup nobody can build, which every real car beats by
+    /// seconds.
+    private func efficiencyRow(_ analysis: DayAnalysis) -> some View {
+        VStack(spacing: 0) {
+            Rectangle().fill(Theme.Color.rule).frame(height: 1)
+                .padding(.vertical, 8)
+            HStack(alignment: .firstTextBaseline) {
+                Text("Optimal (\(analysis.legalCount) legal)").apexLabel()
+                Spacer(minLength: 10)
+                Text(FixedPoint.formatLapTime(millis: analysis.minPossibleAverageLapMillis))
+                    .apexData(13, color: Theme.Color.muted)
+            }
+            .padding(.vertical, 5)
+            HStack {
+                Text("Your gap").apexLabel()
+                Spacer()
+                Text(analysis.gapToOptimalMillis == 0
+                     ? "level"
+                     : "+" + secondsText(analysis.gapToOptimalMillis))
+                    .apexData(15, weight: .bold,
+                              color: analysis.gapToOptimalMillis == 0
+                                  ? Theme.Color.gain : Theme.Color.cream)
+            }
+            .padding(.vertical, 5)
+            HStack {
+                Text("Possible setups beaten").apexLabel()
+                Spacer()
+                Text("\(analysis.beatPercent)%").apexData(15, weight: .bold)
+            }
+            .padding(.vertical, 5)
         }
     }
 

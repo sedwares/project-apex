@@ -3,15 +3,14 @@
 //  ProjectApex
 //
 //  A compact "what you're building for" strip pinned atop every build
-//  screen (Daily Bay, Quick Race, Custom Test). Reuses the section
-//  glyphs and weather effects so the player never loses the context of
-//  their decisions.
+//  screen (Daily Bay, Quick Race, Custom Test). Reuses the section bars
+//  and weather effects so the player never loses the context of their
+//  decisions.
 //
-//  Livery: the archetype is condensed display type, the conditions sit
-//  to the right as a micro-label, and the layout glyphs run underneath.
-//  Deliberately quieter than the home screen's header band — this one is
-//  pinned above a scrolling list of choices and has to stay out of the
-//  way of the thing you came here to do.
+//  F1 RESTYLE (pass 7, fix 1):
+//  Timing tower treatment: 4px red left stripe via .overlay(alignment: .leading)
+//  so the VStack drives natural height and the stripe never expands to fill
+//  all available safeAreaInset space. Section bars + budget inline.
 //
 
 import SwiftUI
@@ -23,7 +22,8 @@ struct CircuitContextHeader: View {
     let budget: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 6) {
+            // Row 1: archetype name (left) + weather condition (right)
             HStack(alignment: .firstTextBaseline) {
                 Text(circuit.archetype.displayName)
                     .apexDisplay(19)
@@ -35,43 +35,81 @@ struct CircuitContextHeader: View {
                 .apexLabel(Theme.Color.signal)
             }
 
-            HStack(spacing: 6) {
-                ForEach(Array(circuit.sections.enumerated()), id: \.offset) { _, section in
-                    Image(systemName: glyph(for: section))
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Theme.Color.faint)
+            // Row 2: circuit section bars + budget
+            // Bars read left→right in lap order; first bar is always
+            // signal red (entry sector) so you can orient the sequence
+            // the same way the Engineering Bay reads it.
+            HStack(alignment: .center, spacing: 0) {
+                HStack(spacing: 2) {
+                    ForEach(Array(circuit.sections.enumerated()), id: \.offset) { idx, section in
+                        Rectangle()
+                            .fill(idx == 0 ? Theme.Color.signal : sectionBarColor(section))
+                            .frame(width: sectionBarWidth(section), height: 3)
+                    }
                 }
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
+                Text("\(budget) CR")
+                    .apexData(11, weight: .medium, color: Theme.Color.muted)
             }
 
+            // Row 3: weather modifier — one sentence on how today differs
             Text(weatherEffect(weather))
                 .font(Theme.Font.body(11, weight: .regular))
                 .foregroundStyle(Theme.Color.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, Theme.Metric.gutter)
+        // Extra leading padding clears the 4px stripe overlay.
+        .padding(.leading, 16)
+        .padding(.trailing, Theme.Metric.gutter)
         .padding(.top, 10)
         .padding(.bottom, 11)
         .background(Theme.Color.panel)
+        // Stripe pinned as overlay so the VStack drives height — never expands.
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Theme.Color.signal)
+                .frame(width: 4)
+        }
         .overlay(alignment: .bottom) {
             Rectangle().fill(Theme.Color.rule).frame(height: 1)
         }
     }
 
-    private func glyph(for section: TrackSectionType) -> String {
+    // MARK: - Section bars
+
+    /// Bar widths tuned to the visual weight of each section type.
+    /// Straights run wide; braking zones and hairpins run narrow.
+    private func sectionBarWidth(_ section: TrackSectionType) -> CGFloat {
         switch section {
-        case .longStraight, .shortStraight: return "arrow.right"
-        case .finalStraight: return "flag.checkered"
-        case .heavyBrakingZone: return "octagon"
-        case .hairpin: return "arrow.uturn.down"
-        case .slowCorner, .mediumCorner: return "arrow.turn.up.right"
-        case .fastCorner: return "arrow.up.right"
-        case .technicalSector: return "scribble"
-        case .elevationClimb: return "arrow.up.forward"
-        case .elevationDrop: return "arrow.down.forward"
-        case .bumpySector: return "waveform.path"
+        case .longStraight:                     return 22
+        case .finalStraight:                    return 18
+        case .shortStraight:                    return 9
+        case .heavyBrakingZone:                 return 11
+        case .hairpin:                          return 8
+        case .fastCorner:                       return 18
+        case .mediumCorner:                     return 14
+        case .slowCorner:                       return 11
+        case .technicalSector:                  return 12
+        case .elevationClimb, .elevationDrop:   return 15
+        case .bumpySector:                      return 13
         }
     }
+
+    /// Colour encodes section character at a glance.
+    /// Braking zones are gold-tinted (caution), speed sectors are cream,
+    /// the rest are subdued. The first bar is always signal red (see body).
+    private func sectionBarColor(_ section: TrackSectionType) -> Color {
+        switch section {
+        case .heavyBrakingZone, .hairpin:
+            return Theme.Color.notice.opacity(0.35)
+        case .longStraight, .finalStraight, .fastCorner:
+            return Theme.Color.cream.opacity(0.28)
+        default:
+            return Theme.Color.cream.opacity(0.14)
+        }
+    }
+
+    // MARK: - Weather helpers
 
     private func weatherSymbol(_ w: Weather) -> String {
         switch w {

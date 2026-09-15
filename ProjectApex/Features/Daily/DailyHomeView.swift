@@ -2,17 +2,15 @@
 //  DailyHomeView.swift
 //  ProjectApex
 //
-//  Renders the DailyCoordinator's lifecycle: loading → brief, or the
-//  unavailable / update states. Quick Race and Custom Test are always
-//  offered — they work offline by design.
+//  F1 BROADCAST RESTYLE (pass 7):
+//  The header is now a timing-tower panel: Carbon Black ground, 4px red
+//  left-edge stripe, large day number in the F1 broadcast style, a
+//  conditions spec grid, and circuit section bars that replace the icon
+//  strip. The streak gets a championship-points card (gold left stripe,
+//  large number). Primary CTA is now signal red. The regulation strip
+//  runs full red — it is the most important constraint on the screen.
 //
-//  Styled to the Livery direction (see Theme.swift). One structural
-//  change came with the restyle: the day, the circuit and the conditions
-//  moved into a single red header band, and the regulation became a
-//  full-bleed strip directly beneath it rather than the last row of the
-//  spec card. The regulation changes what you can build before you have
-//  built anything — on a regulated day it is the most important line on
-//  this screen, and as a spec row it read as a footnote.
+//  All business logic and navigation are unchanged from pass 6.
 //
 
 import SwiftUI
@@ -65,8 +63,6 @@ struct DailyHomeView: View {
                         Image(systemName: "questionmark.circle")
                     }
                 }
-                // Account deletion has to be findable, not buried in the
-                // help text — guideline 5.1.1(v).
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink {
                         SettingsView(callsign: coordinator.displayName)
@@ -80,13 +76,9 @@ struct DailyHomeView: View {
         .task {
             let todayKey = DailyCoordinator.todayDateKey()
             Analytics.trackOpen(todayDayNumber: ChallengeSeed.dayNumber(fromDateKey: todayKey))
-            // Reminders drift out of date whenever the app is opened on a
-            // new day without submitting — rebuild from what's saved.
             let played = UserDefaultsSaveStore().loadRecord(forDateKey: todayKey) != nil
             await NotificationService.shared.refreshSchedule(hasPlayedToday: played)
         }
-        // Separate task: the exhaustive solve for yesterday must never
-        // delay today's brief appearing.
         .task { await coordinator.loadYesterdayReveal() }
         .fullScreenCover(isPresented: Binding(
             get: { !onboardingSeen },
@@ -101,33 +93,29 @@ struct DailyHomeView: View {
 
     // MARK: - Brief (challenge ready)
 
-    /// Scrolls: the brief carries header, spec card, section strip and
-    /// briefing prose before the reveal card is added, which overflows a
-    /// small phone. No Spacers — inside a ScrollView they collapse to
-    /// nothing.
     private func briefContent(_ viewModel: DailyViewModel) -> some View {
         ScrollView {
             VStack(spacing: 0) {
                 header(viewModel)
 
+                // Regulation: red strip — it changes what you can build,
+                // so it must be the first thing read after the header.
                 if let banned = viewModel.bannedOption {
                     let option = OptionLibrary.option(banned)
                     Text("Regulation · no \(option.displayName) \(option.category.displayName)")
-                        .apexNotice(Theme.Color.cream)
+                        .apexNotice(Theme.Color.signal)
                 }
 
-                VStack(spacing: 22) {
+                VStack(spacing: 14) {
+                    // Streak: championship-points card, gold left stripe.
                     if viewModel.streak > 0 {
-                        HStack(spacing: 5) {
-                            Image(systemName: "flame.fill")
-                            Text("\(viewModel.streak)-day streak")
-                        }
-                        .apexLabel(Theme.Color.notice)
+                        streakCard(viewModel.streak)
                     }
 
+                    // Conditions card.
                     specCard(viewModel)
 
-                    // Chief Engineer's pre-race briefing (deterministic, Core).
+                    // Chief Engineer's pre-race briefing.
                     Text(FeedbackEngine.preRaceBriefing(
                         archetype: viewModel.challenge.circuit.archetype,
                         weather: viewModel.challenge.weather,
@@ -138,64 +126,193 @@ struct DailyHomeView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 28)
 
-                    // The debrief's lock promises this; here it's delivered.
                     if let reveal = coordinator.yesterdayReveal {
                         yesterdayRevealCard(reveal)
                     }
 
                     actionButtons(viewModel)
                 }
-                .padding(.top, 22)
+                .padding(.top, 18)
             }
         }
     }
+
+    // MARK: - F1 Timing Tower Header
 
     private func header(_ viewModel: DailyViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(dayKicker(viewModel))
-                .apexLabel(Theme.Color.cream.opacity(0.72))
-            Text(circuitTitle(viewModel.challenge.circuit.name))
-                .apexDisplay(31)
-            HStack(spacing: 16) {
-                metaItem(weatherEffects(viewModel.challenge.weather).symbol,
-                         viewModel.challenge.weather.displayName)
-                metaItem(nil, "\(viewModel.budget) cr")
-                metaItem(nil, "\(viewModel.challenge.circuit.sections.count) sections")
+        HStack(spacing: 0) {
+            // 4px red left stripe — timing tower signature.
+            Rectangle()
+                .fill(Theme.Color.signal)
+                .frame(width: 4)
+
+            VStack(alignment: .leading, spacing: 0) {
+                // ── Top badge row
+                HStack(alignment: .center) {
+                    Text("Project Apex")
+                        .apexLabel(Theme.Color.cream.opacity(0.42))
+                    Spacer()
+                    sessionBadge
+                }
+                .padding(.top, 12)
+                .padding(.trailing, 16)
+
+                // ── Day number + circuit name
+                HStack(alignment: .bottom, spacing: 12) {
+                    if let day = ChallengeSeed.dayNumber(fromDateKey: viewModel.challenge.dateKey) {
+                        Text("\(day)")
+                            .font(.system(size: 72, weight: .black).width(.condensed))
+                            .tracking(-2)
+                            .foregroundStyle(Theme.Color.cream)
+                            .lineLimit(1)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Race Day")
+                            .font(Theme.Font.label(10))
+                            .tracking(2.5)
+                            .textCase(.uppercase)
+                            .foregroundStyle(Theme.Color.signal)
+                        Text(circuitTitle(viewModel.challenge.circuit.name))
+                            .font(.system(size: 20, weight: .heavy).width(.condensed))
+                            .foregroundStyle(Theme.Color.cream)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+                    .padding(.bottom, 4)
+                }
+                .padding(.top, 4)
+                .padding(.trailing, 16)
+
+                // ── Conditions spec grid
+                HStack(spacing: 0) {
+                    gridCell(label: "Weather", value: viewModel.challenge.weather.displayName)
+                    Rectangle().fill(Theme.Color.rule).frame(width: 1)
+                    gridCell(label: "Budget", value: "\(viewModel.budget) CR")
+                    Rectangle().fill(Theme.Color.rule).frame(width: 1)
+                    gridCell(label: "Sections", value: "\(viewModel.challenge.circuit.sections.count)")
+                }
+                .overlay(
+                    Rectangle().stroke(Theme.Color.rule, lineWidth: 1)
+                )
+                .padding(.top, 10)
+                .padding(.trailing, 16)
+
+                // ── Circuit section bars
+                sectionBars(viewModel.challenge.circuit)
+                    .padding(.trailing, 16)
             }
-            .padding(.top, 3)
+            .padding(.leading, 12)
         }
-        .apexHeaderBand()
+        .background(Theme.Color.panel)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Theme.Color.rule).frame(height: 1)
+        }
     }
 
-    private func metaItem(_ symbol: String?, _ text: String) -> some View {
-        HStack(spacing: 4) {
-            if let symbol { Image(systemName: symbol) }
-            Text(text)
+    private var sessionBadge: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(Theme.Color.gain)
+                .frame(width: 5, height: 5)
+            Text("Session Open")
+                .font(Theme.Font.label(8))
+                .tracking(1.5)
+                .textCase(.uppercase)
+                .foregroundStyle(Theme.Color.gain)
         }
-        .apexLabel(Theme.Color.cream.opacity(0.88))
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(Theme.Color.gain.opacity(0.10))
+        .overlay(Rectangle().stroke(Theme.Color.gain.opacity(0.30), lineWidth: 1))
     }
 
-    /// Two rows, and neither repeats the header.
-    ///
-    /// The first version had "Track type: Balanced Circuit" directly
-    /// under a title reading "Balanced Circuit", and "Budget: 96
-    /// credits" under a header already showing "96 CR" — the circuit
-    /// name is derived from the archetype, so those two lines could
-    /// never disagree. Both are gone. The layout strip moved in here and
-    /// got a label, which is the only thing that made it mean anything:
-    /// as a row of loose glyphs floating between two cards it read as
-    /// decoration.
+    private func gridCell(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).apexLabel()
+            Text(value)
+                .font(.system(size: 14, weight: .heavy).width(.condensed))
+                .textCase(.uppercase)
+                .foregroundStyle(Theme.Color.cream)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
+    // MARK: - Section bars (replaces SF symbol strip)
+
+    private func sectionBars(_ circuit: Circuit) -> some View {
+        HStack(spacing: 2) {
+            ForEach(Array(circuit.sections.enumerated()), id: \.offset) { idx, section in
+                Rectangle()
+                    .fill(idx == 0 ? Theme.Color.signal : sectionBarColor(section))
+                    .frame(width: sectionBarWidth(section), height: 4)
+            }
+        }
+        .padding(.vertical, 10)
+    }
+
+    private func sectionBarWidth(_ section: TrackSectionType) -> CGFloat {
+        switch section {
+        case .longStraight:                     return 22
+        case .finalStraight:                    return 18
+        case .shortStraight:                    return 9
+        case .heavyBrakingZone:                 return 11
+        case .hairpin:                          return 8
+        case .fastCorner:                       return 18
+        case .mediumCorner:                     return 14
+        case .slowCorner:                       return 11
+        case .technicalSector:                  return 12
+        case .elevationClimb, .elevationDrop:   return 15
+        case .bumpySector:                      return 13
+        }
+    }
+
+    private func sectionBarColor(_ section: TrackSectionType) -> Color {
+        switch section {
+        case .heavyBrakingZone, .hairpin:
+            return Theme.Color.notice.opacity(0.35)
+        case .longStraight, .finalStraight, .fastCorner:
+            return Theme.Color.cream.opacity(0.28)
+        default:
+            return Theme.Color.cream.opacity(0.14)
+        }
+    }
+
+    // MARK: - Streak card
+
+    private func streakCard(_ streak: Int) -> some View {
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(Theme.Color.notice)
+                .frame(width: 3)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Streak").apexLabel()
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text("\(streak)")
+                        .font(.system(size: 44, weight: .black).width(.condensed))
+                        .foregroundStyle(Theme.Color.notice)
+                    Text(streak == 1 ? "day" : "days")
+                        .apexLabel(Theme.Color.muted)
+                }
+            }
+            .padding(.leading, 12)
+            .padding(.vertical, 12)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .background(Theme.Color.panel)
+        .overlay(Rectangle().stroke(Theme.Color.rule, lineWidth: 1))
+        .padding(.horizontal, 20)
+    }
+
+    // MARK: - Conditions card
+
+    /// Conditions effect only — layout strip moved into the header.
     private func specCard(_ viewModel: DailyViewModel) -> some View {
         VStack(spacing: 0) {
             briefRow(label: "Conditions",
                      value: weatherEffects(viewModel.challenge.weather).effect)
-            Rectangle().fill(Theme.Color.rule).frame(height: 1)
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("Layout").apexLabel()
-                Spacer(minLength: 12)
-                sectionStrip(viewModel.challenge.circuit)
-            }
-            .padding(.vertical, 12)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 2)
@@ -221,14 +338,9 @@ struct DailyHomeView: View {
         let id: EngineeringCategoryID
         let category: String
         let option: String
-        /// The player's pick, only when it differed from optimal.
-        /// nil = they matched, so there's nothing to compare.
         let yours: String?
     }
 
-    /// Built outside the view builder deliberately: a wrong member name
-    /// here produces a precise error on this line, rather than an
-    /// inscrutable ForEach/Binding inference failure in the card body.
     private func optimalRows(_ reveal: DailyCoordinator.YesterdayReveal) -> [OptimalRow] {
         EngineeringCategoryID.allCases.compactMap { category -> OptimalRow? in
             guard let optionID = reveal.optimalSelections[category] else { return nil }
@@ -243,8 +355,6 @@ struct DailyHomeView: View {
         }
     }
 
-    /// Collapsed by default: yesterday's answer must never push today's
-    /// call to action off the screen.
     private func yesterdayRevealCard(_ reveal: DailyCoordinator.YesterdayReveal) -> some View {
         DisclosureGroup {
             VStack(spacing: 0) {
@@ -257,10 +367,6 @@ struct DailyHomeView: View {
                                 .font(Theme.Font.body(13))
                                 .foregroundStyle(Theme.Color.cream)
                                 .multilineTextAlignment(.trailing)
-                            // Muted, not red: a different pick isn't
-                            // necessarily a costly one — there's no
-                            // per-category time attribution to justify
-                            // calling it a mistake.
                             if let yours = row.yours {
                                 Text("you: \(yours)")
                                     .font(Theme.Font.body(11, weight: .regular))
@@ -298,7 +404,7 @@ struct DailyHomeView: View {
                     Image(systemName: "lock.open")
                     Text("Yesterday's optimal setup")
                 }
-                .apexLabel(Theme.Color.signal)
+                .apexLabel(Theme.Color.session)  // Purple: session record treatment
                 Text("Day \(reveal.dayNumber) — you beat \(reveal.beatPercent)% · \(reveal.matchedCount) of \(EngineeringCategoryID.allCases.count) systems matched")
                     .font(Theme.Font.body(12, weight: .regular))
                     .foregroundStyle(Theme.Color.muted)
@@ -387,40 +493,6 @@ struct DailyHomeView: View {
 
     // MARK: - Presentation helpers
 
-    private func dayKicker(_ viewModel: DailyViewModel) -> String {
-        if let day = ChallengeSeed.dayNumber(fromDateKey: viewModel.challenge.dateKey) {
-            return "Today's assignment — day \(day)"
-        }
-        return "Today's assignment"
-    }
-
-    /// Layout rhythm at a glance — abstract glyphs, not a map (v2 gets
-    /// the real track art).
-    private func sectionStrip(_ circuit: Circuit) -> some View {
-        HStack(spacing: 7) {
-            ForEach(Array(circuit.sections.enumerated()), id: \.offset) { _, section in
-                Image(systemName: glyph(for: section))
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Theme.Color.faint)
-            }
-        }
-    }
-
-    private func glyph(for section: TrackSectionType) -> String {
-        switch section {
-        case .longStraight, .shortStraight: return "arrow.right"
-        case .finalStraight: return "flag.checkered"
-        case .heavyBrakingZone: return "octagon"
-        case .hairpin: return "arrow.uturn.down"
-        case .slowCorner, .mediumCorner: return "arrow.turn.up.right"
-        case .fastCorner: return "arrow.up.right"
-        case .technicalSector: return "scribble"
-        case .elevationClimb: return "arrow.up.forward"
-        case .elevationDrop: return "arrow.down.forward"
-        case .bumpySector: return "waveform.path"
-        }
-    }
-
     private func weatherEffects(_ weather: Weather) -> (symbol: String, effect: String) {
         switch weather {
         case .sunny: return ("sun.max", "Clean conditions — pure setup racing")
@@ -431,8 +503,6 @@ struct DailyHomeView: View {
         }
     }
 
-    /// The DAY kicker already shows the day; strip a trailing
-    /// "— Day N" from the circuit name so it isn't shown twice.
     private func circuitTitle(_ name: String) -> String {
         if let range = name.range(of: " — Day ") {
             return String(name[..<range.lowerBound])

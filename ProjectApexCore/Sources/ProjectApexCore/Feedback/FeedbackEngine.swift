@@ -292,12 +292,29 @@ public nonisolated enum FeedbackEngine {
             // closest to perfect rather than "beat a car with no parts".
             // And beating it outright is now sayable, which is the best
             // sentence this engine can produce.
-            if lost[best] < 0 {
+            let tier = SectorTier.of(deltaMillis: lost[best])
+            switch tier {
+            case .ahead:
                 lines.append("Sector \(best + 1) beat the optimal car — \(formatGap(-lost[best])) quicker through there.")
-            } else if lost[best] == 0 {
+            case .optimal:
                 lines.append("Sector \(best + 1) was perfect — you matched the optimal car there.")
-            } else {
-                lines.append("Sector \(best + 1) was your strongest — only \(formatGap(lost[best])) off the optimal car.")
+            default:
+                // Ask the tier itself whether this is sayable as praise,
+                // rather than re-listing the bad cases here. Restating
+                // them was a second copy of the boundary that SectorTier
+                // exists to own — the exact drift that let the prose and
+                // the debrief chart contradict each other in the first
+                // place.
+                if tier.isCreditable {
+                    lines.append("Sector \(best + 1) was your strongest — only \(formatGap(lost[best])) off the optimal car.")
+                } else {
+                    // The best sector on the lap is STILL off the pace, so
+                    // "your strongest" would be praise the lap has not
+                    // earned — and it used to print directly above a red
+                    // WEAK label carrying the identical number. Say what is
+                    // actually true: it held up best, and the lap was poor.
+                    lines.append("Sector \(best + 1) held up best, but the whole lap was off the pace — \(formatGap(lost[best])) down there alone.")
+                }
             }
         } else if let best = result.sectorResults.min(by: { $0.gapMillis < $1.gapMillis }),
                   best.gapMillis < 0 {

@@ -48,7 +48,34 @@ final class TestSessionViewModel {
     private(set) var runCount = 0
     /// Every run this session, most recent first — so the player can
     /// see each attempt's time, not just the latest and the best.
-    private(set) var runHistory: [SimulationResult] = []
+    private(set) var runHistory: [SessionRun] = []
+
+    /// One recorded run, carrying an identity the SIMULATION cannot
+    /// supply.
+    ///
+    /// The history used to be `[SimulationResult]`, keyed in the view by
+    /// `resultHash`. That is a content hash, and the simulation is
+    /// deterministic — so re-running a setup you tried earlier in the
+    /// session produces a byte-identical result and therefore a
+    /// DUPLICATE SwiftUI identity. Duplicate ids in a ForEach are
+    /// undefined behaviour: observed live, a 10-run session rendered
+    /// runs 3 and 4 twice each and dropped 6 and 7 entirely, with the
+    /// numbering scrambled to 10,9,8,3,4,5,4,3,2,1.
+    ///
+    /// The app's central promise — same setup, same result, forever —
+    /// is exactly what made the content hash unusable as an identity.
+    /// `number` is assigned once when the run is recorded and never
+    /// derived from position, so it is stable no matter what else
+    /// enters the list.
+    struct SessionRun: Identifiable, Sendable {
+        /// Monotonic within a session, 1-based. Also the "Run N" label —
+        /// the label used to be `runHistory.count - index`, which made
+        /// it depend on the same unstable index.
+        let number: Int
+        let result: SimulationResult
+
+        var id: Int { number }
+    }
 
     private var rng: SplitMix64
 
@@ -134,7 +161,63 @@ final class TestSessionViewModel {
     /// elsewhere". Everything the advisor needs is right here.
     var feedback: EngineerFeedback? {
         guard let lastResult else { return nil }
-        return FeedbackEngine.generate(result: lastResult, challenge: challengeAdapter)
+        return FeedbackEngine.generate(
+            result: lastResult,
+            challenge: challengeAdapter,
+            // Was nil, which sent the whole practice mode down the
+            // NEUTRAL-CAR fallback: all twelve stats at 1000 and no
+            // options. That car is not in the legal space — every setup
+            // must pick eight options — so nobody can build it and
+            // every real car beats it by seconds. The result was lines
+            // like "6.148s quicker than the neutral car": always large,
+            // always positive, carrying no information.
+            //
+            // The Daily had exactly this bug in its sector chart and it
+            // was fixed there; see the comment on
+            // RaceDebriefView.sectorsSection. The practice modes were
+            // the last place the old baseline survived, which also made
+            // the two screens incomparable while speaking in the same
+            // Chief Engineer voice.
+            optimalSectorTotalsMillis: analysis?.optimalSectorTotalsMillis
+        )
+    }
+
+    // MARK: - Exhaustive analysis (the real baseline)
+
+    /// The optimal legal setup for the CURRENT conditions.
+    ///
+    /// Same exhaustive solve the Daily runs. It is affordable here for
+    /// the same reason it is affordable there — the publish tool solves
+    /// a full day in 12–45ms — and it buys the practice modes a target
+    /// worth measuring against, plus a real gap and "possible setups
+    /// beaten".
+    private(set) var analysis: DayAnalysis?
+    private var isAnalysisLoading = false
+
+    /// Off the main actor: the solve walks the whole legal space, and
+    /// the run bar has to stay responsive.
+    func loadAnalysis() async {
+        guard let lastResult, analysis == nil, !isAnalysisLoading else { return }
+        isAnalysisLoading = true
+        defer { isAnalysisLoading = false }
+        let challenge = challengeAdapter
+        let playerAverage = lastResult.averageLapTimeMillis
+        analysis = await Task.detached(priority: .userInitiated) {
+            DayAnalyzer.analyze(
+                challenge: challenge,
+                playerAverageLapMillis: playerAverage
+            )
+        }.value
+    }
+
+    /// Sector deltas against the optimal setup, per lap — the same
+    /// quantity the Daily debrief charts. nil until the solve lands.
+    var sectorsLostToOptimal: [Int]? {
+        guard let lastResult, let analysis else { return nil }
+        return FeedbackEngine.sectorsLostToOptimal(
+            result: lastResult,
+            optimalSectorTotalsMillis: analysis.optimalSectorTotalsMillis
+        )
     }
 
     /// The computed next test for the current run. nil while it's being
@@ -197,11 +280,25 @@ final class TestSessionViewModel {
             replayResult = result
             advice = nil   // recomputed for the new result by the view's task
 
-            let isRepeat = runHistory.first?.resultHash == result.resultHash
-            if !isRepeat {
-                runCount += 1
-                runHistory.insert(result, at: 0)
-            }
+            // Every run is recorded, repeats included.
+            //
+            // This used to skip a run whose result matched the PREVIOUS
+            // one, to keep the log free of indistinguishable rows. Two
+            // problems: it only compared against `runHistory.first`, so
+            // A → B → A slipped through and produced the duplicate-id
+            // crash described on SessionRun; and the premise was wrong.
+            // A repeat that returns an identical time is not noise — in
+            // a deterministic simulation it is the proof, and the Lab is
+            // a notebook, so the honest record is every attempt.
+            // A new result means the previous solve describes a
+            // different car. The conditions are unchanged, so the
+            // OPTIMUM is unchanged too — but DayAnalyzer folds the
+            // player's own average into beatPercent and the gap, so it
+            // has to be recomputed.
+            analysis = nil
+
+            runCount += 1
+            runHistory.insert(SessionRun(number: runCount, result: result), at: 0)
 
             if bestAverageMillis == nil || result.averageLapTimeMillis < bestAverageMillis! {
                 bestAverageMillis = result.averageLapTimeMillis
@@ -239,6 +336,7 @@ final class TestSessionViewModel {
     private func resetSession() {
         lastResult = nil
         advice = nil
+        analysis = nil
         bestAverageMillis = nil
         runCount = 0
         runHistory = []

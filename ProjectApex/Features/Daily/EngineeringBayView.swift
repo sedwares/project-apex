@@ -6,21 +6,12 @@
 //  Over-budget selection is allowed by design — the total goes red
 //  and Submit gates. The player feels the trade-off.
 //
-//  PASS 6:
-//  • The preview shows the four stats that decide THIS circuit, each
-//    with its share of the lap. The old fixed five axes hid braking,
-//    acceleration, power, cooling and weight — between them most of
-//    what the simulation actually rewards.
-//  • Options removed by the day's technical regulation render struck
-//    through and unselectable, with the reason stated once at the top
-//    rather than as a mystery disabled row.
-//
-//  LIVERY RESTYLE:
-//  The regulation moved out of the scrolling list and into the pinned
-//  top inset, beside the circuit context. It constrains every choice on
-//  this screen, so scrolling it off the top was wrong — you could be
-//  four categories deep and no longer be able to see why one row was
-//  struck through.
+//  F1 RESTYLE (pass 7):
+//  Option rows are styled as timing-tower entries: a 3px red left stripe
+//  marks the selected row, with an animation on selection. Unselected rows
+//  have a hairline rule stripe. The submit button is now signal red.
+//  List row insets are removed on the leading edge so the stripe sits
+//  flush with the row's left boundary.
 //
 
 import SwiftUI
@@ -34,36 +25,48 @@ struct EngineeringBayView: View {
     var body: some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let identity = viewModel.identityPreview {
-                        Text(identity.displayText)
-                            .apexDisplay(18)
-                    } else {
-                        Text("Complete all 8 systems to see your identity")
-                            .font(Theme.Font.body(13, weight: .regular))
-                            .foregroundStyle(Theme.Color.muted)
+                if viewModel.selections.isEmpty {
+                    // Nothing selected yet — slim placeholder so the screen
+                    // isn't a blank wall while the player reads the header.
+                    HStack(spacing: 12) {
+                        Rectangle()
+                            .fill(Theme.Color.signal)
+                            .frame(width: 3, height: 32)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Choose your 8 systems below")
+                                .font(Theme.Font.body(14))
+                                .foregroundStyle(Theme.Color.cream)
+                            Text("Circuit analysis appears as you build")
+                                .font(Theme.Font.body(11.5, weight: .regular))
+                                .foregroundStyle(Theme.Color.muted)
+                        }
                     }
+                    .padding(.vertical, 10)
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let identity = viewModel.identityPreview {
+                            Text(identity.displayText)
+                                .apexDisplay(18)
+                        }
 
-                    Text("What decides today").apexLabel()
+                        Text("What decides today").apexLabel()
 
-                    ForEach(Array(viewModel.livePreview.axes.enumerated()), id: \.element.name) { rank, axis in
-                        DemandAxisRow(axis: axis, rank: rank)
+                        ForEach(Array(viewModel.livePreview.axes.enumerated()), id: \.element.name) { rank, axis in
+                            DemandAxisRow(axis: axis, rank: rank)
+                        }
+
+                        Text(DemandAxisRow.explainer)
+                            .font(Theme.Font.body(10.5, weight: .regular))
+                            .foregroundStyle(Theme.Color.faint)
+                            .padding(.top, 2)
                     }
-
-                    Text(DemandAxisRow.explainer)
-                        .font(Theme.Font.body(10.5, weight: .regular))
-                        .foregroundStyle(Theme.Color.faint)
-                        .padding(.top, 2)
+                    .padding(.vertical, 6)
+                    .transition(.opacity)
                 }
-                // Baseline bars read as "all equal" rather than "nothing
-                // chosen yet"; dim until the first selection gives them
-                // something to say.
-                .opacity(viewModel.selections.isEmpty ? 0.45 : 1)
-                .animation(.easeInOut(duration: 0.2), value: viewModel.selections.isEmpty)
-                .padding(.vertical, 6)
             }
             .listRowBackground(Theme.Color.panel)
             .listRowSeparator(.hidden)
+            .animation(.easeInOut(duration: 0.2), value: viewModel.selections.isEmpty)
 
             ForEach(OptionLibrary.categories) { category in
                 Section {
@@ -72,6 +75,8 @@ struct EngineeringBayView: View {
                     }
                     .listRowBackground(Theme.Color.panel)
                     .listRowSeparatorTint(Theme.Color.rule)
+                    // Remove leading inset so the stripe reaches the row edge.
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 } header: {
                     Text(category.displayName).apexLabel(Theme.Color.muted)
                 }
@@ -92,7 +97,7 @@ struct EngineeringBayView: View {
                     budget: viewModel.budget
                 )
                 if let regulation = viewModel.regulationText {
-                    Text(regulation).apexNotice(Theme.Color.cream)
+                    Text(regulation).apexNotice(Theme.Color.signal)
                 }
             }
         }
@@ -112,21 +117,13 @@ struct EngineeringBayView: View {
             }
         }
         .onAppear {
-            // Restored (already-submitted) day: straight to the debrief,
-            // no re-ceremony. Guarded on !showReplay so a live replay
-            // never has a navigation armed underneath it.
             if viewModel.phase == .submitted && viewModel.result != nil && !showReplay {
                 showDebrief = true
             }
         }
     }
 
-    // MARK: - Demand axis
-    //
-    // Lives in DemandAxisRow.swift — the Debrief draws the same chart,
-    // and two copies had already drifted apart once.
-
-    // MARK: - Option row
+    // MARK: - Option row (timing tower style)
 
     private func optionRow(_ option: EngineeringOption, in category: EngineeringCategory) -> some View {
         let isSelected = viewModel.selectedOption(in: category.id) == option.id
@@ -137,52 +134,61 @@ struct EngineeringBayView: View {
         return Button {
             viewModel.select(option.id)
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: isBanned
-                      ? "nosign"
-                      : (isSelected ? "checkmark.circle.fill" : "circle"))
-                    .font(.system(size: 17))
-                    .foregroundStyle(isBanned ? Theme.Color.faint
-                                     : (isSelected ? Theme.Color.signal : Theme.Color.faint))
+            HStack(spacing: 0) {
+                // Timing tower left stripe: red on selected, hairline on unselected.
+                Rectangle()
+                    .fill(isBanned ? Color.clear
+                          : (isSelected ? Theme.Color.signal : Theme.Color.rule))
+                    .frame(width: 3)
+                    .animation(.snappy(duration: 0.12), value: isSelected)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(option.displayName)
-                        .font(Theme.Font.body(15))
-                        .foregroundStyle(isBanned ? Theme.Color.faint : Theme.Color.cream)
-                        .strikethrough(isBanned)
-                    if isBanned {
-                        Text("Not permitted at this event")
-                            .font(Theme.Font.body(10.5, weight: .regular))
-                            .foregroundStyle(Theme.Color.faint)
-                    } else if option.topUpside != nil || option.topDownside != nil {
-                        HStack(spacing: 9) {
-                            // No sign prefix here: topUpside/topDownside
-                            // already carry their own (+/−). Prefixing
-                            // produced "+ +Top Speed".
-                            if let up = option.topUpside {
-                                Text(up).foregroundStyle(Theme.Color.gain)
+                HStack(spacing: 12) {
+                    Image(systemName: isBanned
+                          ? "nosign"
+                          : (isSelected ? "checkmark.circle.fill" : "circle"))
+                        .font(.system(size: 17))
+                        .foregroundStyle(isBanned ? Theme.Color.faint
+                                         : (isSelected ? Theme.Color.signal : Theme.Color.faint))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(option.displayName)
+                            .font(Theme.Font.body(15))
+                            .foregroundStyle(
+                                isBanned ? Theme.Color.faint
+                                : (isSelected ? Theme.Color.cream : Theme.Color.cream.opacity(0.70))
+                            )
+                            .strikethrough(isBanned)
+                        if isBanned {
+                            Text("Not permitted at this event")
+                                .font(Theme.Font.body(10.5, weight: .regular))
+                                .foregroundStyle(Theme.Color.faint)
+                        } else if option.topUpside != nil || option.topDownside != nil {
+                            HStack(spacing: 9) {
+                                if let up = option.topUpside {
+                                    Text(up).foregroundStyle(Theme.Color.gain)
+                                }
+                                if let down = option.topDownside {
+                                    Text(down).foregroundStyle(Theme.Color.muted)
+                                }
                             }
-                            if let down = option.topDownside {
-                                Text(down).foregroundStyle(Theme.Color.muted)
-                            }
+                            .font(Theme.Font.body(11, weight: .medium))
                         }
-                        .font(Theme.Font.body(11, weight: .medium))
                     }
-                }
 
-                Spacer(minLength: 8)
+                    Spacer(minLength: 8)
 
-                // A delta is only meaningful against an existing pick.
-                // Without one, costDelta == cost and the row rendered
-                // the same number twice ("+16  16 cr").
-                if !isBanned && categoryHasSelection && !isSelected && delta != 0 {
-                    Text(delta > 0 ? "+\(delta)" : "\(delta)")
-                        .apexData(11, color: delta > 0 ? Theme.Color.notice : Theme.Color.gain)
+                    if !isBanned && categoryHasSelection && !isSelected && delta != 0 {
+                        Text(delta > 0 ? "+\(delta)" : "\(delta)")
+                            .apexData(11, color: delta > 0 ? Theme.Color.notice : Theme.Color.gain)
+                    }
+                    Text("\(option.cost) cr")
+                        .apexData(13, color: Theme.Color.muted)
                 }
-                Text("\(option.cost) cr")
-                    .apexData(13, color: Theme.Color.muted)
+                .padding(.vertical, 10)
+                .padding(.leading, 12)
+                .padding(.trailing, 16)
+                .contentShape(Rectangle())
             }
-            .padding(.vertical, 3)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -215,21 +221,18 @@ struct EngineeringBayView: View {
                 }
             }
 
-            // A plain rectangle rather than ProgressView: the capsule
-            // shape and the system's animation curve both belong to a
-            // different design language, and at 4pt tall the rounded
-            // ends eat most of the first few credits.
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Rectangle().fill(Theme.Color.cream.opacity(0.12))
                     Rectangle()
-                        .fill(viewModel.isOverBudget ? Theme.Color.signal : Theme.Color.cream)
+                        .fill(viewModel.isOverBudget ? Theme.Color.signal : Theme.Color.gain)
                         .frame(width: proxy.size.width * fillFraction)
                         .animation(.snappy(duration: 0.2), value: viewModel.totalCost)
                 }
             }
             .frame(height: 4)
 
+            // Submit — red when active (race control style).
             Button {
                 viewModel.submit()
                 showReplay = viewModel.result != nil
@@ -238,11 +241,14 @@ struct EngineeringBayView: View {
                     .font(Theme.Font.display(15))
                     .tracking(1.4)
                     .textCase(.uppercase)
-                    .foregroundStyle(viewModel.canSubmit ? Theme.Color.ink : Theme.Color.faint)
+                    .foregroundStyle(viewModel.canSubmit ? Theme.Color.cream : Theme.Color.faint)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 15)
-                    .background(viewModel.canSubmit
-                                ? Theme.Color.cream : Theme.Color.cream.opacity(0.10))
+                    .background(
+                        viewModel.canSubmit
+                        ? Theme.Color.signal
+                        : Theme.Color.signal.opacity(0.12)
+                    )
             }
             .buttonStyle(.plain)
             .disabled(!viewModel.canSubmit)
@@ -256,8 +262,6 @@ struct EngineeringBayView: View {
         }
     }
 
-    /// Clamped so an over-budget setup shows a full bar rather than one
-    /// that overflows its track.
     private var fillFraction: Double {
         guard viewModel.budget > 0 else { return 0 }
         return min(1, Double(viewModel.totalCost) / Double(viewModel.budget))

@@ -270,7 +270,25 @@ final class DailyViewModel {
             }
             standingState = .loaded(standing)
         } catch {
+            // DebugLog prints; CrashReporting REPORTS.
+            //
+            // `.failed(reason:)` renders that reason only #if DEBUG, so
+            // players never see a raw Firestore string — right for the
+            // screen, and it meant a leaderboard failure in production
+            // was completely invisible. One did occur on the first
+            // TestFlight build (day 231, "Couldn't reach the leaderboard")
+            // and could not be diagnosed at all, because the only copy of
+            // the reason went to a console nobody was attached to.
+            //
+            // The friendly line stays exactly as it was; the reason now
+            // also lands in Crashlytics as a non-fatal, with the day and
+            // whether this was a forced refresh, so the next occurrence
+            // arrives with its own evidence.
             DebugLog.log("standing failed for \(challenge.dateKey)", error)
+            CrashReporting.log(
+                "standing failed · day \(challenge.dateKey) · force=\(force) · \(Self.describe(error))",
+                error: error
+            )
             standingState = .failed(reason: Self.describe(error))
         }
     }
