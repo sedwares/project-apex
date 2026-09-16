@@ -185,6 +185,74 @@ final class DailyViewModelTests: XCTestCase {
         XCTAssertTrue(vm.experimentSelections.isEmpty)
     }
 
+    // MARK: - The day closing under an open session
+
+    /// The reported failure: leave the app open across 00:00 UTC, submit,
+    /// get a local record and a streak bump, and have Firestore reject
+    /// the write against a day that has closed.
+    func testSubmitRefusedOnceTheDayHasClosed() {
+        // A REAL dateKey, unlike the shared fixture's "test-day-1":
+        // the rollover check is calendar arithmetic and has nothing to
+        // compare a synthetic key against.
+        let vm = viewModelForDateKey("2026-07-16", budget: 100)
+        selectAllBalanced(vm)
+        XCTAssertTrue(vm.canSubmit)
+        XCTAssertFalse(vm.isClosed)
+
+        let tomorrow = utcNoon(2026, 7, 17)
+        XCTAssertTrue(vm.refreshDayState(now: tomorrow), "state should change")
+        XCTAssertTrue(vm.isClosed)
+        XCTAssertFalse(vm.canSubmit)
+
+        vm.submit()
+        XCTAssertEqual(vm.phase, .building, "a closed day must not accept a submission")
+        XCTAssertNil(vm.result)
+    }
+
+    func testRefreshDayStateReportsOnlyRealChanges() {
+        let vm = viewModelForDateKey("2026-07-16", budget: 100)
+        XCTAssertFalse(vm.refreshDayState(now: utcNoon(2026, 7, 16)), "same day, no change")
+        let later = utcNoon(2026, 7, 17)
+        XCTAssertTrue(vm.refreshDayState(now: later))
+        XCTAssertFalse(vm.refreshDayState(now: later), "second call is a no-op")
+    }
+
+    /// A synthetic challenge has no calendar day to be past, so it must
+    /// never read as closed — otherwise every practice surface and every
+    /// test fixture locks itself out on construction.
+    func testSyntheticChallengeIsNeverClosed() {
+        let vm = makeViewModel(budget: 100)   // dateKey "test-day-1"
+        XCTAssertFalse(vm.refreshDayState(now: Date().addingTimeInterval(10 * 86_400)))
+        XCTAssertFalse(vm.isClosed)
+    }
+
+    private func viewModelForDateKey(_ dateKey: String, budget: Int) -> DailyViewModel {
+        let day = ChallengeSeed.dayNumber(fromDateKey: dateKey)!
+        let generated = ChallengeGenerator.generate(dayNumber: day, dateKey: dateKey)
+        let challenge = DailyChallenge(
+            id: generated.id, dateKey: generated.dateKey, seed: generated.seed,
+            circuit: generated.circuit, weather: generated.weather,
+            budget: budget, simulationVersion: generated.simulationVersion
+        )
+        return DailyViewModel(challenge: challenge, store: InMemorySaveStore())
+    }
+
+    private func utcNoon(_ year: Int, _ month: Int, _ day: Int) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar.date(from: DateComponents(
+            year: year, month: month, day: day, hour: 12))!
+    }
+
+    func testMidnightCountdownIsPositiveAndWithinADay() {
+        let seconds = DailyHomeView.secondsUntilNextUTCMidnight()
+        XCTAssertNotNil(seconds)
+        if let seconds {
+            XCTAssertGreaterThan(seconds, 0)
+            XCTAssertLessThanOrEqual(seconds, 24 * 60 * 60)
+        }
+    }
+
     // MARK: - Submit lock semantics
 
     func testSubmitBlockedWhenIncomplete() {

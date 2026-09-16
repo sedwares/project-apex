@@ -18,7 +18,23 @@ import ProjectApexCore
 
 struct DailyHomeView: View {
     @State private var coordinator = DailyCoordinator()
+    @State private var midnightWatchID = 0
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("apex.onboarding.seen") private var onboardingSeen = false
+
+    /// Seconds from now to the next 00:00 UTC, or nil if the calendar
+    /// cannot produce one (it always can; nil keeps the timer off rather
+    /// than guessing an interval).
+    static func secondsUntilNextUTCMidnight(from now: Date = Date()) -> TimeInterval? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        guard let next = calendar.nextDate(
+            after: now,
+            matching: DateComponents(hour: 0, minute: 0, second: 0),
+            matchingPolicy: .nextTime
+        ) else { return nil }
+        return next.timeIntervalSince(now)
+    }
 
     var body: some View {
         NavigationStack {
@@ -73,6 +89,33 @@ struct DailyHomeView: View {
             }
         }
         .task { await coordinator.load() }
+        // ── THE DAY ROLLING OVER ───────────────────────────────────
+        // The app had no lifecycle handling of any kind: no scenePhase
+        // observer, no date watch. Leave it open across 00:00 UTC and
+        // it served yesterday's challenge until something else happened
+        // to reload it — and the bay would still take a submission the
+        // server was going to refuse.
+        //
+        // Two triggers, because one is not enough. Foregrounding covers
+        // the common case (phone in a pocket overnight). The timer
+        // covers the case actually reported: the app sitting open on
+        // screen as midnight passes, where nothing would otherwise fire.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await coordinator.reloadIfDayChanged() }
+        }
+        .task(id: midnightWatchID) {
+            guard let seconds = Self.secondsUntilNextUTCMidnight() else { return }
+            // +2s of slack so we are unambiguously the far side of the
+            // boundary rather than racing it.
+            try? await Task.sleep(for: .seconds(seconds + 2))
+            guard !Task.isCancelled else { return }
+            if case .ready(let viewModel) = coordinator.state {
+                viewModel.refreshDayState()
+            }
+            await coordinator.reloadIfDayChanged()
+            midnightWatchID += 1   // re-arm for the following midnight
+        }
         .task {
             let todayKey = DailyCoordinator.todayDateKey()
             Analytics.trackOpen(todayDayNumber: ChallengeSeed.dayNumber(fromDateKey: todayKey))
@@ -228,7 +271,7 @@ struct DailyHomeView: View {
                     Text("Project Apex")
                         .apexLabel(Theme.Color.cream.opacity(0.42))
                     Spacer()
-                    sessionBadge
+                    sessionBadge(viewModel)
                 }
                 .padding(.top, 12)
                 .padding(.trailing, 16)
@@ -294,21 +337,27 @@ struct DailyHomeView: View {
         }
     }
 
-    private var sessionBadge: some View {
-        HStack(spacing: 5) {
+    /// This said "Session Open" unconditionally, including on a day
+    /// that had already closed under a long-running session — the badge
+    /// was decoration, not state.
+    private func sessionBadge(_ viewModel: DailyViewModel) -> some View {
+        let closed = viewModel.isClosed
+        let tint = closed ? Theme.Color.notice : Theme.Color.gain
+        return HStack(spacing: 5) {
             Circle()
-                .fill(Theme.Color.gain)
+                .fill(tint)
                 .frame(width: 5, height: 5)
-            Text("Session Open")
+            Text(closed ? "Session Closed" : "Session Open")
                 .font(Theme.Font.label(8))
                 .tracking(1.5)
                 .textCase(.uppercase)
-                .foregroundStyle(Theme.Color.gain)
+                .foregroundStyle(tint)
+                .contentTransition(.identity)
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
-        .background(Theme.Color.gain.opacity(0.10))
-        .overlay(Rectangle().stroke(Theme.Color.gain.opacity(0.30), lineWidth: 1))
+        .background(tint.opacity(0.10))
+        .overlay(Rectangle().stroke(tint.opacity(0.30), lineWidth: 1))
     }
 
     private func gridCell(label: String, value: String) -> some View {
@@ -478,17 +527,40 @@ struct DailyHomeView: View {
     /// route back to your result was out to this screen and in again.
     private func actionButtons(_ viewModel: DailyViewModel) -> some View {
         VStack(spacing: 12) {
-            NavigationLink {
-                if viewModel.phase == .submitted {
-                    RaceDebriefView(viewModel: viewModel)
-                } else {
-                    EngineeringBayView(viewModel: viewModel)
+            if viewModel.isClosed && viewModel.phase != .submitted {
+                // The day closed while the app was open and this one was
+                // never submitted. Sending the player into the bay would
+                // be inviting work the server will refuse, so say what
+                // happened and offer the only useful action.
+                VStack(spacing: 8) {
+                    Text("Today's assignment closed")
+                        .font(Theme.Font.display(15))
+                        .tracking(1.4)
+                        .textCase(.uppercase)
+                        .foregroundStyle(Theme.Color.faint)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .background(Theme.Color.cream.opacity(0.08))
+                    Button {
+                        Task { await coordinator.load() }
+                    } label: {
+                        Text("Load today's assignment").apexPrimaryButton()
+                    }
+                    .buttonStyle(.plain)
                 }
-            } label: {
-                Text(viewModel.phase == .submitted ? "View debrief" : "Begin assignment")
-                    .apexPrimaryButton()
+            } else {
+                NavigationLink {
+                    if viewModel.phase == .submitted {
+                        RaceDebriefView(viewModel: viewModel)
+                    } else {
+                        EngineeringBayView(viewModel: viewModel)
+                    }
+                } label: {
+                    Text(viewModel.phase == .submitted ? "View debrief" : "Begin assignment")
+                        .apexPrimaryButton()
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
 
             testSessionButtons
         }

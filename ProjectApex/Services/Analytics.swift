@@ -2,15 +2,29 @@
 //  Analytics.swift
 //  ProjectApex
 //
-//  Four events. Deliberately four.
+//  FIVE events. This header said four, and listed four, and the privacy
+//  policy was written from this list — which is how the policy came to
+//  claim the streak "never leaves your device" while daily_submission
+//  was uploading it on every submission. Found in external review
+//  2026-09-16. If you add an event here, the list below, the policy at
+//  docs/index.html and PrivacyInfo.xcprivacy all change with it.
 //
 //  Launch week produces exactly one useful question — "where do people
-//  fall out?" — and four events answer it end to end:
+//  fall out?" — and these answer it end to end:
 //
 //      onboarding_completed  → did they get past the pitch?
 //      first_submission      → did they finish an assignment?
+//      daily_submission      → how deep does engagement go? CARRIES THE
+//                              STREAK, the day number, and whether the
+//                              day was regulated. The only event that
+//                              sends anything about the player's record.
 //      return_day_2          → did the daily loop take?
 //      share_tapped          → is the growth engine firing?
+//
+//  Note the DEBUG wrapper below silences only these five. Firebase
+//  Analytics still collects its own automatic events, and Crashlytics
+//  still collects by default — the wrapper is not an opt-out and the
+//  policy no longer implies it is.
 //
 //  Every additional event costs a decision at read time and buys nothing
 //  until there's traffic to slice. Add the fifth when a real question

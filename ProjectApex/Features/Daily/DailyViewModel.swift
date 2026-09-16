@@ -136,8 +136,47 @@ final class DailyViewModel {
         guard let banned = challenge.bannedOption else { return false }
         return selections.values.contains(banned)
     }
+    // MARK: - The day closing under you
+
+    /// True once UTC has moved past the day this challenge belongs to.
+    ///
+    /// Leave the app open overnight and the loaded challenge becomes
+    /// yesterday's. Before this existed nothing noticed: the bay still
+    /// accepted a submission, `submit()` wrote a local record and bumped
+    /// the streak, and only then did Firestore reject the write against
+    /// a closed day — leaving a player who did everything right with a
+    /// result that never ranked and a streak built on it.
+    ///
+    /// Stored rather than computed from `Date()` on read, because a
+    /// computed clock is not observable: the badge and the Submit button
+    /// have to change AT midnight for someone sitting on the screen, not
+    /// the next time something else happens to redraw. `refreshDayState`
+    /// is driven by the scene becoming active and by a timer armed for
+    /// the next UTC midnight — see DailyHomeView.
+    private(set) var isClosed = false
+
+    /// Recomputes `isClosed`. Returns true if it changed, so the caller
+    /// can decide whether a full reload is warranted.
+    @discardableResult
+    func refreshDayState(now: Date = Date()) -> Bool {
+        // A challenge whose dateKey is not a real UTC date key cannot be
+        // held against the calendar. That only ever happens for a
+        // SYNTHETIC challenge — the lab's adapter, a test fixture —
+        // never a published day, so the honest answer is "open" rather
+        // than locking a screen out on an unparseable string. Writing
+        // the regression test is what surfaced this: the fixtures use
+        // "test-day-1", which compares unequal to every real date and
+        // would have closed every test's assignment on construction.
+        let closed = ChallengeSeed.parse(dateKey: challenge.dateKey) != nil
+            && UTCDateKey.make(from: now) != challenge.dateKey
+        guard closed != isClosed else { return false }
+        isClosed = closed
+        return true
+    }
+
     var canSubmit: Bool {
-        phase == .building && isComplete && !isOverBudget && !usesBannedOption
+        phase == .building && isComplete && !isOverBudget
+            && !usesBannedOption && !isClosed
     }
 
     var identityPreview: SetupIdentity? {
@@ -208,6 +247,10 @@ final class DailyViewModel {
     /// Locks the setup and runs the deterministic simulation.
     /// One official submission — no undo.
     func submit() {
+        // Re-checked here, not just in canSubmit: the button may have
+        // been on screen when the day was still open. One tap after
+        // midnight must not write a record the server will refuse.
+        refreshDayState()
         guard canSubmit else { return }
         let setup = PlayerSetup(challengeId: challenge.id, selectedOptions: selections)
         let simulationResult = SimulationEngine.simulate(

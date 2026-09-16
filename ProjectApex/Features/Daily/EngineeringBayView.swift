@@ -21,6 +21,7 @@ struct EngineeringBayView: View {
     @Bindable var viewModel: DailyViewModel
     @State private var showDebrief = false
     @State private var showReplay = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         List {
@@ -108,6 +109,9 @@ struct EngineeringBayView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { budgetBar }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { viewModel.refreshDayState() }
+        }
         .navigationDestination(isPresented: $showDebrief) {
             RaceDebriefView(viewModel: viewModel)
         }
@@ -248,6 +252,10 @@ struct EngineeringBayView: View {
         if viewModel.phase == .submitted {
             return isSubmittedWithResult ? "View debrief" : "Submitted"
         }
+        // Midnight UTC can pass while the player is mid-build. canSubmit
+        // already refuses, but a disabled button still reading
+        // "Submit — lock setup" looks like a bug rather than a deadline.
+        if viewModel.isClosed { return "Assignment closed" }
         if !viewModel.isComplete {
             let remaining = EngineeringCategoryID.allCases.count - viewModel.selections.count
             return "Choose \(remaining) more"

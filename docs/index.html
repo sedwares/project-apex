@@ -30,7 +30,7 @@
 
 <header>
   <h1>Privacy Policy</h1>
-  <p class="meta">Project Apex: Race Engineer · Effective 15 September 2026 · Sedar Sahin</p>
+  <p class="meta">Project Apex: Race Engineer · Effective 16 September 2026 · Sedar Sahin</p>
 </header>
 
 <p class="lede">Project Apex is a daily race-engineering puzzle. There are no accounts to create,
@@ -40,7 +40,9 @@ describes exactly what the app does collect, and why.</p>
 <h2>The short version</h2>
 <p>The app gives you an anonymous ID so the daily leaderboard can work, and stores the setups and
 lap times you submit. It uses Google Firebase for crash reporting and basic usage counts. It never
-asks for your name, email address, phone number, contacts, photos, or location.</p>
+asks for your name, email address, phone number, contacts, photos, or precise location — but it
+does create persistent identifiers for you, and those count as personal data under most privacy
+law. This policy says exactly which ones, and what they are attached to.</p>
 
 <h2>Anonymous identity</h2>
 <p>On first launch the app creates an anonymous account through Firebase Authentication. That
@@ -57,9 +59,13 @@ not.</strong> They are sealed by the server until the day closes, so nobody can 
 while the competition is still running. After a day closes, that day's setups become readable —
 that is how the reveal works.</p>
 
-<h2>What never leaves your device</h2>
-<p>Your streak, race history, Experiment runs, Quick Race and Test Lab sessions, and your app
-preferences are stored only on your device and are never uploaded.</p>
+<h2>What stays on your device</h2>
+<p>Your race history, Experiment runs, Quick Race and Test Lab sessions, and your app preferences
+are stored only on your device and are never uploaded.</p>
+<p>One correction, because an earlier version of this policy said otherwise: <strong>your streak is
+not purely local.</strong> The current streak length is sent as a number with the analytics event
+that fires when you submit a day, described below. The day-by-day history behind it stays on your
+device; the count does not.</p>
 
 <h2>Crash reporting and analytics</h2>
 <p>The app uses Firebase Crashlytics and Firebase Analytics.</p>
@@ -67,8 +73,12 @@ preferences are stored only on your device and are never uploaded.</p>
 app crashes, tagged with your anonymous ID so a repeated fault can be traced to one player's
 sessions. Alongside a crash it also records a short breadcrumb log of the actions taken
 immediately before it.</p>
-<p><strong>Analytics</strong> records a small set of events — onboarding completed, first
-submission, second-day return, and share tapped — which are counted, not profiled. Analytics
+<p><strong>Analytics</strong> records a small set of events, which are counted, not profiled:
+onboarding completed; each daily submission, carrying the day number, your current streak length,
+and whether that day had a technical regulation; your first submission; your first return on a
+later day; and share tapped. Beyond these, Firebase Analytics also collects its own automatic
+events — first open, session starts, app updates and similar — which the SDK enables by
+default rather than the app switching them on. Analytics
 assigns a separate app-instance identifier that is not connected to your anonymous ID, and
 derives an approximate, region-level location from your masked IP address. The app never requests
 Location Services and holds no location permission.</p>
@@ -86,15 +96,22 @@ on servers in the United States. Google's commitments for these services are des
 every setup you have submitted, your local history, and the anonymous account itself.</p>
 <p>One thing is kept: your past leaderboard rows, with the callsign replaced by
 <code>ENG-DELETED</code>. Each row is the record of a competition other people took part in, and
-removing one would silently re-rank everyone who finished behind you. What stays is a lap time
-with no identity attached to it.</p>
+removing one would silently re-rank everyone who finished behind you.</p>
+<p>Being precise about what that leaves, because this policy previously was not: the displayed name
+is gone, but each kept row is still stored under your anonymous ID, so those rows remain linked to
+one another. Nothing connects that ID to you as a person — it was never given your name or email
+— but it is not accurate to call the remaining rows anonymous. Crash reports and analytics events
+already sent before deletion are also not retrieved; they age out under Google's own retention
+schedule.</p>
 <p>Deleting the app removes all local data and disconnects the anonymous identity from your device
 permanently. A reinstall creates a new one, and the old one cannot be recovered.</p>
 
 <h2>Children</h2>
-<p>The app collects no personal information from anyone, including children. There are no ads, no
-chat, no user-generated text, and no way for players to contact one another. Callsigns are
-assigned automatically.</p>
+<p>The app never asks anyone, including children, for a name, email address, phone number,
+contacts, photos, or precise location. What it does collect is described above: an anonymous
+identifier, the setups and lap times you submit, crash diagnostics, and usage counts. There are no
+ads, no chat, no way for players to contact one another, and no text a player can write — the app
+assigns every callsign automatically and offers no way to change one.</p>
 
 <h2>Changes</h2>
 <p>If the app's data practices change, this policy is updated and the effective date revised

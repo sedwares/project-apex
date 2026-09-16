@@ -102,6 +102,29 @@ final class DailyCoordinator {
         UTCDateKey.make(from: now)
     }
 
+    /// The dateKey the current `state` was built for. Compared against
+    /// the wall clock to notice a rollover.
+    private(set) var loadedDateKey: String?
+
+    /// True when UTC has moved past the day we loaded.
+    var hasRolledOver: Bool {
+        guard let loadedDateKey else { return false }
+        return loadedDateKey != Self.todayDateKey()
+    }
+
+    /// Reload only if the calendar moved. Cheap to call on every
+    /// foreground: on the overwhelmingly common path it does nothing.
+    ///
+    /// Without this the app had no lifecycle at all — no scenePhase
+    /// observer, no timer, nothing — so a session left open across
+    /// 00:00 UTC kept yesterday's challenge indefinitely.
+    func reloadIfDayChanged() async {
+        guard hasRolledOver else { return }
+        DebugLog.log("UTC rollover: \(loadedDateKey ?? "-") -> \(Self.todayDateKey())")
+        yesterdayReveal = nil   // yesterday is a different yesterday now
+        await load()
+    }
+
     func load(dateKey: String = DailyCoordinator.todayDateKey()) async {
         loadGeneration += 1
         let generation = loadGeneration
@@ -151,6 +174,8 @@ final class DailyCoordinator {
                 uid: uid,
                 displayName: displayName
             )
+            viewModel.refreshDayState()
+            loadedDateKey = dateKey
             state = .ready(viewModel)
         } catch ChallengeLoadError.updateRequired {
             guard generation == loadGeneration else { return }
