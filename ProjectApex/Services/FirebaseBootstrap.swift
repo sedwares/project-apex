@@ -32,7 +32,31 @@ enum FirebaseBootstrap {
     /// account deletion — the server-side auth user is gone, so the
     /// restored token authenticates as a uid whose profile and account
     /// no longer exist.
+    enum BootstrapError: Error {
+        /// A session had to be dropped and could not be. Startup stops
+        /// rather than continuing with an identity we already rejected.
+        case rejectedSessionSurvived
+    }
+
     static let installMarker = "apex.install.seen"
+
+    /// The uid of an account whose deletion has been queued.
+    ///
+    /// Written the moment the request lands, and the ONLY thing that
+    /// says "never sign in as this again". It exists because the
+    /// previous design inferred that from the ABSENCE of the install
+    /// marker, and absence is not a statement:
+    /// `clearLocalData` removed the marker, but left
+    /// `apex.notifications.didRequestAuthorization` behind — and the
+    /// upgrade detector counts any apex.* key as prior use, so it read
+    /// the next launch as an upgrade and restored the very session the
+    /// backend was deleting. Two mechanisms coupled through an implicit
+    /// assumption, each correct alone.
+    static let pendingDeletionUIDKey = "apex.deletion.pendingUID"
+
+    static func pendingDeletionUID(defaults: UserDefaults) -> String? {
+        defaults.string(forKey: pendingDeletionUIDKey)
+    }
 
     /// Whether an absent install marker means UPGRADE rather than fresh
     /// install.
@@ -43,8 +67,12 @@ enum FirebaseBootstrap {
     /// `ensureSignedIn` so the decision can be tested without Firebase,
     /// because getting it wrong signs every existing player out.
     static func isUpgradeFromPreMarkerBuild(defaults: UserDefaults) -> Bool {
-        defaults.dictionaryRepresentation().keys.contains { key in
-            key.hasPrefix("apex.") && key != installMarker
+        // The marker and the pending-deletion note are bookkeeping, not
+        // evidence that anybody has played. Counting them would make the
+        // check answer its own question.
+        let bookkeeping: Set<String> = [installMarker, pendingDeletionUIDKey]
+        return defaults.dictionaryRepresentation().keys.contains { key in
+            key.hasPrefix("apex.") && !bookkeeping.contains(key)
         }
     }
 
@@ -53,6 +81,23 @@ enum FirebaseBootstrap {
     static func ensureSignedIn(
         defaults: UserDefaults = .standard
     ) async throws -> (uid: String, displayName: String) {
+        // BEFORE anything else: never sign in as an account that is
+        // queued for deletion. This is independent of the install
+        // marker on purpose — it is a fact recorded at deletion time,
+        // not something inferred from what is missing.
+        if let pending = pendingDeletionUID(defaults: defaults),
+           let current = Auth.auth().currentUser, current.uid == pending {
+            do {
+                try Auth.auth().signOut()
+                DebugLog.log("dropped the session queued for deletion: \(pending)")
+                defaults.removeObject(forKey: pendingDeletionUIDKey)
+                defaults.set(true, forKey: installMarker)
+            } catch {
+                CrashReporting.log("could not drop the deleted account's session", error: error)
+                throw BootstrapError.rejectedSessionSurvived
+            }
+        }
+
         if !defaults.bool(forKey: installMarker) {
             // ── AN ABSENT MARKER IS AMBIGUOUS ────────────────────
             // It means one of two completely different things:
@@ -82,12 +127,19 @@ enum FirebaseBootstrap {
                     DebugLog.log("fresh install with a keychain session — signed out \(existing.uid)")
                     defaults.set(true, forKey: installMarker)
                 } catch {
-                    // Deliberately NOT marking the migration done. The
-                    // old code swallowed this and set the flag anyway,
-                    // which meant one transient failure left the player
-                    // on a session that should have been dropped, with
-                    // nothing ever trying again.
+                    // Not marked done, AND not continued past.
+                    //
+                    // The first version swallowed this and set the flag
+                    // anyway, so one transient failure stranded a player
+                    // on a session that should have been dropped. The
+                    // second left the flag unset but fell through to use
+                    // that session — which then wrote apex.* keys of its
+                    // own, so the NEXT launch classified the install as
+                    // an upgrade and kept it permanently. Logging a
+                    // rejection and then honouring it anyway is worse
+                    // than either.
                     CrashReporting.log("install-marker sign-out failed", error: error)
+                    throw BootstrapError.rejectedSessionSurvived
                 }
             } else {
                 defaults.set(true, forKey: installMarker)

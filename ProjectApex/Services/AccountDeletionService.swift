@@ -97,6 +97,16 @@ final class AccountDeletionService: AccountDeleting {
             ])
         }
 
+        // Record WHICH identity is dying, immediately and explicitly.
+        //
+        // Everything below is best-effort, including deleting the auth
+        // user — so this device may still hold a valid keychain session
+        // for an account the backend is erasing. FirebaseBootstrap reads
+        // this key before anything else and refuses that uid. Saying so
+        // outright replaced inferring it from a missing install marker,
+        // which broke as soon as any other apex.* key survived deletion.
+        defaults.set(uid, forKey: FirebaseBootstrap.pendingDeletionUIDKey)
+
         // Past this line the account is going away whatever happens
         // next, so nothing below is allowed to throw.
 
@@ -131,6 +141,9 @@ final class AccountDeletionService: AccountDeleting {
         var outcome = AccountDeletionOutcome.completed
         do {
             try await user.delete()
+            // The session is genuinely gone, so there is nothing left to
+            // refuse. Left in place on failure, which is the whole point.
+            defaults.removeObject(forKey: FirebaseBootstrap.pendingDeletionUIDKey)
         } catch {
             DebugLog.log("auth user delete deferred to the backend", error)
             outcome = .queued
@@ -158,11 +171,19 @@ final class AccountDeletionService: AccountDeleting {
             defaults.removeObject(forKey: key)
         }
         defaults.removeObject(forKey: "apex.onboarding.seen")
-        // Also the install marker: if the auth user could not be deleted
-        // on this device, the Keychain session survives, and without
-        // this the next launch would sign back in as the account that
-        // was just deleted. Clearing it makes FirebaseBootstrap treat
-        // the next launch as a fresh install and mint a new identity.
-        defaults.removeObject(forKey: "apex.install.seen")
+
+        // The install marker is deliberately LEFT ALONE now.
+        //
+        // It used to be cleared here, with a comment claiming that made
+        // the next launch look like a fresh install and mint a new
+        // identity. That stopped being true the moment the upgrade
+        // detector arrived: clearing the marker is not enough, because
+        // `apex.notifications.didRequestAuthorization` survives this
+        // method and the detector counts it as prior use — so the next
+        // launch read as an upgrade and restored the dying session.
+        //
+        // The rejected identity is now named outright in
+        // FirebaseBootstrap.pendingDeletionUIDKey, set above. This app
+        // has run on this device, and the marker should say so.
     }
 }

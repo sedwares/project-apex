@@ -209,8 +209,12 @@ final class DailyViewModelTests: XCTestCase {
         )
 
         // Any one of these proves the app has run here before.
+        // apex.notifications.* is in the list deliberately: it SURVIVES
+        // clearLocalData, which is precisely how relying on the install
+        // marker's absence to mean "deleted account" fell over.
         for key in ["apex.daily.2026-07-16", "apex.streak.current",
                     "apex.onboarding.seen", "apex.analytics.firstOpenDayNumber",
+                    "apex.notifications.didRequestAuthorization",
                     "apex.challengeCache.2026-07-16"] {
             suite.set("x", forKey: key)
             XCTAssertTrue(
@@ -228,13 +232,47 @@ final class DailyViewModelTests: XCTestCase {
             "the marker is not evidence of prior play"
         )
 
-        // Somebody else's key is not ours.
+        // Nor is the pending-deletion note: it is bookkeeping too, and
+        // counting it would let a queued deletion masquerade as play.
         suite.removeObject(forKey: FirebaseBootstrap.installMarker)
+        suite.set("uid-A", forKey: FirebaseBootstrap.pendingDeletionUIDKey)
+        XCTAssertFalse(
+            FirebaseBootstrap.isUpgradeFromPreMarkerBuild(defaults: suite),
+            "the pending-deletion note is not evidence of prior play"
+        )
+
+        // Somebody else's key is not ours.
+        suite.removeObject(forKey: FirebaseBootstrap.pendingDeletionUIDKey)
         suite.set("x", forKey: "unrelated.setting")
         XCTAssertFalse(
             FirebaseBootstrap.isUpgradeFromPreMarkerBuild(defaults: suite),
             "only this app's own keys count"
         )
+    }
+
+    /// A queued deletion has to be stated, not inferred. clearLocalData
+    /// must leave the note intact — it is the only thing standing
+    /// between a failed `user.delete()` and signing straight back in as
+    /// the account the backend is erasing.
+    func testPendingDeletionNoteSurvivesLocalCleanup() {
+        let suite = UserDefaults(suiteName: "apex.tests.pending")!
+        defer { UserDefaults.standard.removePersistentDomain(forName: "apex.tests.pending") }
+        for key in suite.dictionaryRepresentation().keys { suite.removeObject(forKey: key) }
+
+        suite.set("uid-being-deleted", forKey: FirebaseBootstrap.pendingDeletionUIDKey)
+        suite.set("x", forKey: "apex.daily.2026-07-16")
+        suite.set("x", forKey: "apex.streak.current")
+        suite.set(true, forKey: "apex.onboarding.seen")
+        suite.set(true, forKey: "apex.notifications.didRequestAuthorization")
+
+        AccountDeletionService(defaults: suite).clearLocalData()
+
+        XCTAssertEqual(
+            FirebaseBootstrap.pendingDeletionUID(defaults: suite), "uid-being-deleted",
+            "the rejected identity must outlive the cleanup that creates the risk"
+        )
+        XCTAssertNil(suite.object(forKey: "apex.daily.2026-07-16"))
+        XCTAssertNil(suite.object(forKey: "apex.onboarding.seen"))
     }
 
     // MARK: - Links

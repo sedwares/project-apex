@@ -286,6 +286,15 @@ final class TestSessionViewModel {
                 return
             }
         }
+        // Budget spent and still no answer. Hand the question to a fresh
+        // task rather than dropping it: the view's own task may not fire
+        // again, so exiting here quietly is how "stale answers" would
+        // turn back into "missing answers" under fast interaction. The
+        // defer below releases the loading flag first, so the new
+        // attempt is not refused at the door.
+        if storedAnalysis == nil {
+            Task { [weak self] in await self?.loadAnalysis() }
+        }
     }
 
     /// Sector deltas against the optimal setup, per lap — the same
@@ -323,6 +332,9 @@ final class TestSessionViewModel {
                 storedAdvice = solved
                 return
             }
+        }
+        if storedAdvice == nil {
+            Task { [weak self] in await self?.loadAdvice() }
         }
     }
 
