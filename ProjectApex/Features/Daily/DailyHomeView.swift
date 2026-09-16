@@ -28,7 +28,16 @@ struct DailyHomeView: View {
     /// that; copy does not.
     static let primaryActionID = "apex.brief.primaryAction"
 
+    /// Where the brief's call to action goes, captured at the moment it
+    /// is tapped. See actionButtons for why this is a stored value and
+    /// not a branch inside a NavigationLink.
+    enum BriefDestination: Hashable {
+        case bay
+        case debrief
+    }
+
     @State private var coordinator = DailyCoordinator()
+    @State private var destination: BriefDestination?
     @State private var midnightWatchID = 0
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("apex.onboarding.seen") private var onboardingSeen = false
@@ -101,6 +110,18 @@ struct DailyHomeView: View {
                         }
                     } label: {
                         Image(systemName: "gearshape")
+                    }
+                }
+            }
+            // INSIDE the NavigationStack, deliberately: a
+            // navigationDestination attached to the stack itself rather
+            // than to its content never registers, and the push
+            // silently does nothing.
+            .navigationDestination(item: $destination) { target in
+                if case .ready(let viewModel) = coordinator.state {
+                    switch target {
+                    case .bay: EngineeringBayView(viewModel: viewModel)
+                    case .debrief: RaceDebriefView(viewModel: viewModel)
                     }
                 }
             }
@@ -567,12 +588,27 @@ struct DailyHomeView: View {
                     .accessibilityIdentifier(Self.primaryActionID)
                 }
             } else {
-                NavigationLink {
-                    if viewModel.phase == .submitted {
-                        RaceDebriefView(viewModel: viewModel)
-                    } else {
-                        EngineeringBayView(viewModel: viewModel)
-                    }
+                // ── WHY THIS IS NOT A NavigationLink ──────────────────
+                // It was, with a destination that branched on
+                // `viewModel.phase`. That branch is REACTIVE, and it ate
+                // the race.
+                //
+                // Tap Submit inside the bay: phase flips to .submitted,
+                // this body re-evaluates, and SwiftUI swaps the
+                // ALREADY-PUSHED destination from EngineeringBayView to
+                // RaceDebriefView underneath the player. The bay is torn
+                // down mid-tap, so the `showReplay = true` it had just
+                // set lands on a view that is disappearing and the
+                // fullScreenCover holding the replay never presents. The
+                // submit went straight to the debrief and the race — the
+                // moment the whole build pays off — was skipped.
+                //
+                // A destination must be decided WHEN YOU NAVIGATE, not
+                // re-derived from live state afterwards. Capturing it as
+                // a value at tap time makes the push immune to anything
+                // that changes while you are in there.
+                Button {
+                    destination = viewModel.phase == .submitted ? .debrief : .bay
                 } label: {
                     Text(viewModel.phase == .submitted ? "View debrief" : "Begin assignment")
                         .apexPrimaryButton()
