@@ -81,6 +81,7 @@ struct OnboardingView: View {
                     .apexPrimaryButton()
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("apex.onboarding.advance")
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }

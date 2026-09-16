@@ -72,32 +72,45 @@ final class ProjectApexUITests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground, "the app is not in the foreground")
     }
 
-    /// The brief is reachable and carries the day's assignment.
+    /// The brief is reachable and offers its one call to action.
     ///
-    /// Skipped rather than failed when the paddock is unreachable: the
-    /// daily challenge comes from Firestore, and a UI test has no
-    /// business failing because of someone's wifi.
+    /// ── TWO THINGS THIS GOT WRONG FIRST TIME ───────────────────
+    /// It looked for `app.staticTexts["Begin assignment"]`. A
+    /// NavigationLink's Text label surfaces in the accessibility tree
+    /// as a BUTTON, so that query could never match — the test failed
+    /// against a perfectly healthy screen.
+    ///
+    /// And it assumed one label. There are three legitimate ones:
+    /// "Begin assignment" before you play, "View debrief" after, and
+    /// "Load today's assignment" when the day closed under an open
+    /// session. Pinning copy would have failed again the first time
+    /// anyone edited a string.
+    ///
+    /// So it matches an identifier instead, which survives both.
     @MainActor
-    func testBriefOffersAnAssignmentOrSaysWhyNot() throws {
+    func testBriefOffersItsCallToAction() throws {
         let app = XCUIApplication()
         app.launch()
 
-        // Step past onboarding if this is a fresh install.
-        for _ in 0..<4 {
-            if app.staticTexts["Enter the paddock"].waitForExistence(timeout: 2) {
-                app.staticTexts["Enter the paddock"].tap()
-                break
-            }
-            if app.staticTexts["Next"].exists { app.staticTexts["Next"].tap() }
+        // Step past onboarding if this is a fresh install. Bounded:
+        // a loop that waits on a screen that never comes is a hang,
+        // not a test.
+        let advance = app.buttons["apex.onboarding.advance"]
+        var guardRail = 0
+        while advance.waitForExistence(timeout: 2), guardRail < 6 {
+            advance.tap()
+            guardRail += 1
         }
 
         if app.staticTexts["Paddock unreachable"].waitForExistence(timeout: 8) {
             throw XCTSkip("no network or no published challenge — nothing to assert")
         }
 
-        let begin = app.staticTexts["Begin assignment"]
-        let debrief = app.staticTexts["View debrief"]
-        let ready = begin.waitForExistence(timeout: 10) || debrief.exists
-        XCTAssertTrue(ready, "the brief rendered without a call to action")
+        let cta = app.buttons["apex.brief.primaryAction"]
+        XCTAssertTrue(
+            cta.waitForExistence(timeout: 10),
+            "the brief rendered with no call to action at all"
+        )
+        XCTAssertTrue(cta.isHittable, "the call to action is present but cannot be tapped")
     }
 }

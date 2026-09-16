@@ -17,6 +17,17 @@ import SwiftUI
 import ProjectApexCore
 
 struct DailyHomeView: View {
+    /// Stable hook for the brief's one call to action, whatever it
+    /// currently says.
+    ///
+    /// The UI test used to look for the literal "Begin assignment" as a
+    /// staticText, and was wrong twice: a NavigationLink's Text label
+    /// surfaces as a BUTTON in the accessibility tree, and the copy has
+    /// three legitimate values — begin, view the debrief, or reload a
+    /// day that closed underneath you. An identifier survives all of
+    /// that; copy does not.
+    static let primaryActionID = "apex.brief.primaryAction"
+
     @State private var coordinator = DailyCoordinator()
     @State private var midnightWatchID = 0
     @Environment(\.scenePhase) private var scenePhase
@@ -553,6 +564,7 @@ struct DailyHomeView: View {
                         Text("Load today's assignment").apexPrimaryButton()
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier(Self.primaryActionID)
                 }
             } else {
                 NavigationLink {
@@ -566,6 +578,7 @@ struct DailyHomeView: View {
                         .apexPrimaryButton()
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier(Self.primaryActionID)
             }
 
             testSessionButtons
