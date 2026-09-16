@@ -468,10 +468,22 @@ struct DailyHomeView: View {
 
     // MARK: - Actions
 
+    /// The button goes where the label says.
+    ///
+    /// It used to push the Engineering Bay in both states, and the Bay
+    /// pushed the debrief from its own onAppear when the day was already
+    /// submitted. So "View debrief" flashed the bay on the way past —
+    /// and, worse, the back button landed you in a bay you could not
+    /// leave forwards: the auto-push had already fired, so the only
+    /// route back to your result was out to this screen and in again.
     private func actionButtons(_ viewModel: DailyViewModel) -> some View {
         VStack(spacing: 12) {
             NavigationLink {
-                EngineeringBayView(viewModel: viewModel)
+                if viewModel.phase == .submitted {
+                    RaceDebriefView(viewModel: viewModel)
+                } else {
+                    EngineeringBayView(viewModel: viewModel)
+                }
             } label: {
                 Text(viewModel.phase == .submitted ? "View debrief" : "Begin assignment")
                     .apexPrimaryButton()

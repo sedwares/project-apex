@@ -122,11 +122,6 @@ struct EngineeringBayView: View {
                 }
             }
         }
-        .onAppear {
-            if viewModel.phase == .submitted && viewModel.result != nil && !showReplay {
-                showDebrief = true
-            }
-        }
     }
 
     // MARK: - Option row
@@ -150,7 +145,8 @@ struct EngineeringBayView: View {
     private var budgetBar: some View {
         VStack(spacing: 10) {
             HStack {
-                Text("Engineering budget").apexLabel()
+                Text(viewModel.phase == .submitted ? "Locked setup" : "Engineering budget")
+                    .apexLabel()
                 Spacer()
                 Text("\(viewModel.selections.count) / 8 systems")
                     .apexData(11, weight: .medium, color: Theme.Color.muted)
@@ -182,26 +178,44 @@ struct EngineeringBayView: View {
             }
             .frame(height: 4)
 
-            // Submit — red when active (race control style).
+            // Submit — red when active (race control style). Once the
+            // day is locked this is the way FORWARD to the debrief
+            // rather than a dead "Submitted" label: coming back here
+            // from the debrief used to leave the screen with no exit
+            // but the back button.
             Button {
-                viewModel.submit()
-                showReplay = viewModel.result != nil
+                if viewModel.phase == .submitted {
+                    showDebrief = true
+                } else {
+                    viewModel.submit()
+                    showReplay = viewModel.result != nil
+                }
             } label: {
-                Text(submitLabel)
-                    .font(Theme.Font.display(15))
-                    .tracking(1.4)
-                    .textCase(.uppercase)
-                    .foregroundStyle(viewModel.canSubmit ? Theme.Color.cream : Theme.Color.faint)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(
-                        viewModel.canSubmit
-                        ? Theme.Color.signal
-                        : Theme.Color.signal.opacity(0.12)
-                    )
+                HStack(spacing: 8) {
+                    Text(submitLabel)
+                        .font(Theme.Font.display(15))
+                        .tracking(1.4)
+                        .textCase(.uppercase)
+                        // Never morph a Text's content — "Choose 3 more"
+                        // dissolving into "Submit" is the bug class that
+                        // has bitten this project four times.
+                        .contentTransition(.identity)
+                    if isSubmittedWithResult {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .bold))
+                    }
+                }
+                .foregroundStyle(actionIsLive ? Theme.Color.cream : Theme.Color.faint)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .background(
+                    actionIsLive
+                    ? Theme.Color.signal
+                    : Theme.Color.signal.opacity(0.12)
+                )
             }
             .buttonStyle(.plain)
-            .disabled(!viewModel.canSubmit)
+            .disabled(!actionIsLive)
         }
         .padding(.horizontal, Theme.Metric.gutter)
         .padding(.top, 12)
@@ -217,8 +231,23 @@ struct EngineeringBayView: View {
         return min(1, Double(viewModel.totalCost) / Double(viewModel.budget))
     }
 
+    /// True once there is a result to go and look at. A submitted day
+    /// with no result is not reachable in practice, but the button must
+    /// not promise a debrief that would render empty.
+    private var isSubmittedWithResult: Bool {
+        viewModel.phase == .submitted && viewModel.result != nil
+    }
+
+    /// Whether the primary button does anything: submit while building,
+    /// open the debrief once locked.
+    private var actionIsLive: Bool {
+        isSubmittedWithResult || viewModel.canSubmit
+    }
+
     private var submitLabel: String {
-        if viewModel.phase == .submitted { return "Submitted" }
+        if viewModel.phase == .submitted {
+            return isSubmittedWithResult ? "View debrief" : "Submitted"
+        }
         if !viewModel.isComplete {
             let remaining = EngineeringCategoryID.allCases.count - viewModel.selections.count
             return "Choose \(remaining) more"

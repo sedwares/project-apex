@@ -44,6 +44,7 @@ struct RaceDebriefView: View {
         List {
             if let result = viewModel.result {
                 headerSection(result)
+                lockedSetupSection
                 standingSection
                 lapsSection(result)
                 profileSection
@@ -86,6 +87,40 @@ struct RaceDebriefView: View {
         // than the exhaustive solve, so the Next Test button appears
         // long before the efficiency numbers do.
         .task { await viewModel.loadAdvice() }
+    }
+
+    // MARK: - The car you raced
+
+    /// The debrief is now the first thing "View debrief" opens, so the
+    /// eight choices have to be legible HERE. Before, the only place
+    /// that showed them was the bay you happened to pass through on the
+    /// way — which is exactly the passing-through this navigation fix
+    /// removed.
+    ///
+    /// Same car and same grid as the bay, the lab and the experiment:
+    /// what you built, what it cost, and what each part is.
+    private var lockedSetupSection: some View {
+        Section {
+            VStack(spacing: 12) {
+                SetupCarView(selections: viewModel.selections)
+                    .frame(height: 160)
+                    .frame(maxWidth: .infinity)
+
+                SetupSpecGrid(selections: viewModel.selections)
+
+                HStack {
+                    Text("Spent").apexLabel()
+                    Spacer()
+                    Text("\(viewModel.totalCost) / \(viewModel.budget) cr")
+                        .apexData(13, weight: .medium, color: Theme.Color.muted)
+                }
+            }
+            .padding(.vertical, 8)
+        } header: {
+            Text("What you raced").apexLabel(Theme.Color.muted)
+        }
+        .listRowBackground(Theme.Color.panel)
+        .listRowSeparator(.hidden)
     }
 
     // MARK: - Header
