@@ -86,8 +86,8 @@ There is no option without a cost. That is the game.
 
 | Field | Value | Status |
 |---|---|---|
-| Privacy Policy URL | `https://<user>.github.io/<repo>/` | **needs hosting — see §3** |
-| Support URL | Required. A GitHub Pages page with your email is enough | **needs hosting** |
+| Privacy Policy URL | `https://sedwares.github.io/project-apex/` | hosted from `docs/` on `pass6-launch` |
+| Support URL | `https://sedwares.github.io/project-apex/` | same page — it carries the contact address |
 | Marketing URL | Optional — leave blank for 1.0 | — |
 
 Apple requires the support URL to be a working web page. An `mailto:` link is
@@ -236,7 +236,10 @@ will not appear during a short review session.
       stops working. Publish well past your launch window — a review cycle plus
       launch week is easily a month, and nobody is watching the buffer while
       you are busy.
-- [ ] **Host the privacy policy and support page**, then paste both URLs.
+- [x] **Host the privacy policy and support page.** Both are
+      `https://sedwares.github.io/project-apex/`, served by GitHub Pages
+      from `docs/` on `pass6-launch`. Linked in-app from Settings →
+      Privacy since build 23 (`AppLinks.privacyPolicy`).
 - [ ] **Merge `pass6-launch` into `main`.**
 - [ ] **One midnight-UTC rollover on TestFlight** (8pm your local) with a second
       tester — the streak rollover, the yesterday-reveal card and a leaderboard

@@ -73,6 +73,33 @@ struct SettingsView: View {
             .listRowBackground(Theme.Color.panel)
             .listRowSeparatorTint(Theme.Color.rule)
 
+            // REQUIRED. Apple wants a privacy policy reachable from
+            // inside the app, not only from the store listing, for any
+            // app that collects data — and this one creates a
+            // persistent identifier, stores gameplay against it, and
+            // reports crashes and usage. Settings had no mention of
+            // privacy at all until build 23.
+            //
+            // The same page serves as the support URL in App Store
+            // Connect: Apple rejects a bare mailto:, and the policy page
+            // carries the contact address at the bottom.
+            Section {
+                Link(destination: AppLinks.privacyPolicy) {
+                    HStack(spacing: 7) {
+                        Text("Privacy policy")
+                        Image(systemName: "arrow.up.forward.app")
+                    }
+                    .apexLabel(Theme.Color.cream)
+                }
+                Text("What the app collects, what stays on your device, and what deleting your engineer does. Opens in your browser.")
+                    .font(Theme.Font.body(11.5, weight: .regular))
+                    .foregroundStyle(Theme.Color.muted)
+            } header: {
+                Text("Privacy").apexLabel(Theme.Color.muted)
+            }
+            .listRowBackground(Theme.Color.panel)
+            .listRowSeparatorTint(Theme.Color.rule)
+
             Section {
                 Button(role: .destructive) {
                     confirmingDelete = true

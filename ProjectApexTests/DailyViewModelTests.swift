@@ -185,6 +185,19 @@ final class DailyViewModelTests: XCTestCase {
         XCTAssertTrue(vm.experimentSelections.isEmpty)
     }
 
+    // MARK: - Links
+
+    /// AppLinks.privacyPolicy is force-unwrapped, and the same URL has
+    /// to match what is typed into App Store Connect. A broken literal
+    /// would crash the Settings screen on tap; a changed one would
+    /// silently disagree with the store listing.
+    func testPrivacyPolicyLinkIsWellFormedAndHTTPS() {
+        let url = AppLinks.privacyPolicy
+        XCTAssertEqual(url.scheme, "https", "Apple requires https for the policy URL")
+        XCTAssertEqual(url.host, "sedwares.github.io")
+        XCTAssertEqual(url.absoluteString, "https://sedwares.github.io/project-apex/")
+    }
+
     // MARK: - Account deletion (local half)
 
     /// The prefix list is deliberately prefix-based because daily
