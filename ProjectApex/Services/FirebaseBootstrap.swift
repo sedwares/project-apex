@@ -17,7 +17,38 @@ enum FirebaseBootstrap {
 
     /// Signs in anonymously (or reuses the session) and ensures the
     /// player profile exists. Returns (uid, callsign).
-    static func ensureSignedIn() async throws -> (uid: String, displayName: String) {
+    /// UserDefaults key proving this install has run before.
+    ///
+    /// UserDefaults is wiped when the app is deleted. The Firebase Auth
+    /// session is NOT — it lives in the iOS Keychain, which survives
+    /// deletion and restores on reinstall. So "delete the app and you
+    /// get a new identity" was simply not true, and the privacy policy
+    /// said it was.
+    ///
+    /// The mismatch between the two stores is the detector: a Keychain
+    /// session with no UserDefaults marker beside it means the app was
+    /// deleted and reinstalled, and that session belongs to an install
+    /// the player threw away. It is also the dangerous case after an
+    /// account deletion — the server-side auth user is gone, so the
+    /// restored token authenticates as a uid whose profile and account
+    /// no longer exist.
+    private static let installMarker = "apex.install.seen"
+
+    /// Signs in anonymously (or reuses the session) and ensures the
+    /// player profile exists. Returns (uid, callsign).
+    static func ensureSignedIn(
+        defaults: UserDefaults = .standard
+    ) async throws -> (uid: String, displayName: String) {
+        if !defaults.bool(forKey: installMarker) {
+            if Auth.auth().currentUser != nil {
+                // A session outliving its install. Drop it so the line
+                // below mints a genuinely new anonymous identity.
+                DebugLog.log("fresh install with a keychain session — signing out first")
+                try? Auth.auth().signOut()
+            }
+            defaults.set(true, forKey: installMarker)
+        }
+
         let user: User
         if let current = Auth.auth().currentUser {
             user = current

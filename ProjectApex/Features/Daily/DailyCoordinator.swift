@@ -132,6 +132,26 @@ final class DailyCoordinator {
         await loadYesterdayReveal()
     }
 
+    /// Drop everything tied to the account and sign in again.
+    ///
+    /// Deleting an account used to dismiss Settings and leave this
+    /// coordinator exactly as it was: the old uid, the old callsign, and
+    /// a DailyViewModel still holding the deleted player's result and
+    /// standing, for the rest of the session. The next launch looked
+    /// right, which is the kind of bug that only ever shows up in a
+    /// screenshot from a user.
+    ///
+    /// `load()` signs in from scratch, so the new anonymous identity is
+    /// picked up here rather than at the next cold start.
+    func resetForDeletedAccount() async {
+        uid = nil
+        displayName = nil
+        yesterdayReveal = nil
+        loadedDateKey = nil
+        state = .loading
+        await load()
+    }
+
     func load(dateKey: String = DailyCoordinator.todayDateKey()) async {
         loadGeneration += 1
         let generation = loadGeneration

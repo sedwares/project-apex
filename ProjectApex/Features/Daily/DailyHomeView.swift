@@ -81,7 +81,13 @@ struct DailyHomeView: View {
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink {
-                        SettingsView(callsign: coordinator.displayName)
+                        SettingsView(callsign: coordinator.displayName) { _ in
+                            // Whether the auth user went here or is
+                            // being removed by the backend, this
+                            // session must stop showing the deleted
+                            // player's day.
+                            Task { await coordinator.resetForDeletedAccount() }
+                        }
                     } label: {
                         Image(systemName: "gearshape")
                     }

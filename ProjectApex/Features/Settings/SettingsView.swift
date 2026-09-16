@@ -20,6 +20,10 @@ import ProjectApexCore
 
 struct SettingsView: View {
     let callsign: String?
+    /// Called once deletion is committed, so the screen underneath can
+    /// drop the deleted account instead of carrying its uid, callsign
+    /// and today's result in memory for the rest of the session.
+    var onDeleted: ((AccountDeletionOutcome) -> Void)?
     var deleter: AccountDeleting = AccountDeletionService()
 
     @Environment(\.dismiss) private var dismiss
@@ -145,17 +149,29 @@ struct SettingsView: View {
         }
     }
 
+    /// The failure message used to say "Your data is unchanged", which
+    /// was false in every case it could actually fire: local records had
+    /// already been wiped and the deletion request had already been
+    /// queued, so the account was on its way out while the player was
+    /// being told nothing had happened.
+    ///
+    /// The service now only throws BEFORE anything is committed, so the
+    /// message is true again — and the two success shapes are told
+    /// apart, because "queued" is a real outcome a player deserves to
+    /// know about rather than a hidden partial failure.
     private func delete() async {
         isDeleting = true
         deletionError = nil
         do {
-            try await deleter.deleteAccount()
+            let outcome = try await deleter.deleteAccount()
             // Back to a genuinely fresh start: the next launch signs in
             // anonymously as a NEW uid, so onboarding is honest again.
             onboardingSeen = false
+            onDeleted?(outcome)
             dismiss()
         } catch {
-            deletionError = "Couldn't complete deletion: \(error.localizedDescription). Your data is unchanged — please try again."
+            deletionError = "Couldn't start deletion: \(error.localizedDescription). "
+                + "Nothing has been deleted — please try again."
         }
         isDeleting = false
     }

@@ -103,8 +103,11 @@ one another. Nothing connects that ID to you as a person — it was never given 
 — but it is not accurate to call the remaining rows anonymous. Crash reports and analytics events
 already sent before deletion are also not retrieved; they age out under Google's own retention
 schedule.</p>
-<p>Deleting the app removes all local data and disconnects the anonymous identity from your device
-permanently. A reinstall creates a new one, and the old one cannot be recovered.</p>
+<p>Deleting the app removes all local data. The anonymous sign-in token itself lives in the iOS
+keychain, which survives deleting an app &mdash; so the app checks on every launch whether its own
+local data is missing while a token is still present, and if so discards that token and creates a
+new identity. A reinstall therefore starts you as a new engineer, and the old identity cannot be
+recovered.</p>
 
 <h2>Children</h2>
 <p>The app never asks anyone, including children, for a name, email address, phone number,

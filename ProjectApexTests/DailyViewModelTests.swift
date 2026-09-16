@@ -185,6 +185,37 @@ final class DailyViewModelTests: XCTestCase {
         XCTAssertTrue(vm.experimentSelections.isEmpty)
     }
 
+    // MARK: - Account deletion (local half)
+
+    /// The prefix list is deliberately prefix-based because daily
+    /// records are keyed by date, so an explicit list would rot. That
+    /// makes it worth pinning what it reaches — including the install
+    /// marker, without which a device that could not delete its own auth
+    /// user signs straight back in as the account just deleted.
+    func testClearLocalDataRemovesEverythingTheAccountOwns() {
+        let suite = UserDefaults(suiteName: "apex.tests.deletion")!
+        defer { UserDefaults.standard.removePersistentDomain(forName: "apex.tests.deletion") }
+        for key in suite.dictionaryRepresentation().keys { suite.removeObject(forKey: key) }
+
+        let owned = [
+            "apex.daily.2026-07-16", "apex.daily.2026-07-17",
+            "apex.streak.current", "apex.challengeCache.2026-07-16",
+            "apex.onboarding.seen", "apex.install.seen"
+        ]
+        for key in owned { suite.set("x", forKey: key) }
+        suite.set("keep me", forKey: "unrelated.setting")
+
+        AccountDeletionService(defaults: suite).clearLocalData()
+
+        for key in owned {
+            XCTAssertNil(suite.object(forKey: key), "\(key) survived deletion")
+        }
+        XCTAssertNotNil(
+            suite.object(forKey: "unrelated.setting"),
+            "deletion must not reach beyond the app's own keys"
+        )
+    }
+
     // MARK: - The day closing under an open session
 
     /// The reported failure: leave the app open across 00:00 UTC, submit,
