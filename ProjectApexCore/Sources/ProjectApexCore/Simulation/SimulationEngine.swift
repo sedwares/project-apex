@@ -52,7 +52,34 @@ public nonisolated enum SimulationEngine {
         public static let wearPenaltyDenominator = 2
         public static let wearPenaltyCapBP = 1_500
         /// Wear penalty at or above this triggers `tireWearHigh`.
-        public static let wearEventThresholdBP = 280
+        ///
+        /// ── 280 → 400 (2026-09-17) ─────────────────────────────────
+        /// 280 sat BELOW the baseline car's own wear. A vehicle with no
+        /// tyre investment at all scores 1000 durability → 300 bp, so
+        /// the warning fired for simply existing: 55.6% of all 6,561
+        /// setups in normal weather, 66.7% in Hot, including the
+        /// all-middle car — the safest build in the game — which pass 6
+        /// pushed from 255 to 292 by giving brakesBalanced −25
+        /// durability. A warning that fires on the median setup is not a
+        /// warning, which is the same failure this project already fixed
+        /// once for amber downsides.
+        ///
+        /// 400 was chosen against the other two events rather than
+        /// picked round: it fires on 33.3% of setups, next to
+        /// reliabilityConcern's 29.6% and engineHeatHigh's 23.5%.
+        ///
+        /// NOT 500, which also reads well on paper: at 500 the Hot rate
+        /// collapses to 33.3%, identical to Sunny, so the one weather
+        /// that visibly taxes tyres would stop saying so. At 400 Hot
+        /// fires 55.6% against Sunny's 33.3% — the all-middle car has a
+        /// clean run in the dry and gets the tyre call in the heat,
+        /// which is exactly the sentence Hot weather is meant to write.
+        ///
+        /// DISPLAY ONLY. This constant is read in `deriveEvents` and
+        /// nowhere else — no lap time, no sector total and no result
+        /// hash depends on it — so changing it needs neither a
+        /// simulationVersion bump nor a republish.
+        public static let wearEventThresholdBP = 400
 
         /// Lap 3 heat: deficit = heatGeneration − cooling (if positive).
         /// QUADRATIC penalty to power & topSpeed:

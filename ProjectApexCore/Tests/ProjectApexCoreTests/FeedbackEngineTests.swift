@@ -36,7 +36,10 @@ final class FeedbackEngineTests: XCTestCase {
     func testGlassCannonGetsHeatPriorityRecommendation() {
         let fb = feedback(for: setupC, weather: .sunny)
         // Heat is the top-priority problem for Setup C (deficit 390).
-        XCTAssertTrue(fb.recommendation.contains("cooling"),
+        // Case-insensitive: the copy says "Cooling capacity or a calmer
+        // engine mode". The assertion was pinning a lowercase 'c' that
+        // a rewrite capitalised — the behaviour was always right.
+        XCTAssertTrue(fb.recommendation.lowercased().contains("cooling"),
                       "expected cooling recommendation, got: \(fb.recommendation)")
         XCTAssertTrue(fb.weaknesses.contains { $0.contains("heat") || $0.contains("Cooling") })
         XCTAssertTrue(fb.weaknesses.contains { $0.contains("tire") || $0.contains("Tire") })
@@ -156,6 +159,25 @@ final class FeedbackEngineTests: XCTestCase {
     func testNextTestSuggestionNilOnCleanRun() {
         let clean = SimulationEngine.simulate(setup: setupA, circuit: .reference, weather: .sunny)
         XCTAssertNil(FeedbackEngine.nextTestSuggestion(for: clean))
+    }
+
+    /// The calibration that the four clean-run failures were really
+    /// about: a warning has to mean "worse than having no plan", so the
+    /// threshold must sit above the wear of a car with no tyre
+    /// investment at all. At 280 it sat below, and fired on the median
+    /// setup. See SimulationEngine.Tuning.wearEventThresholdBP.
+    func testWearWarningThresholdIsAboveTheBaselineCar() {
+        let baselineWear = min(
+            (SimulationEngine.Tuning.wearReference - FixedPoint.statBaseline)
+                * SimulationEngine.Tuning.wearPenaltyNumerator
+                / SimulationEngine.Tuning.wearPenaltyDenominator,
+            SimulationEngine.Tuning.wearPenaltyCapBP
+        )
+        XCTAssertGreaterThan(
+            SimulationEngine.Tuning.wearEventThresholdBP, baselineWear,
+            "a car with no tyre investment scores \(baselineWear) bp; a warning "
+                + "that fires below that fires for existing"
+        )
     }
 
     func testRecommendationIsNeverEmpty() {

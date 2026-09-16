@@ -121,8 +121,15 @@ final class DailyCoordinator {
     func reloadIfDayChanged() async {
         guard hasRolledOver else { return }
         DebugLog.log("UTC rollover: \(loadedDateKey ?? "-") -> \(Self.todayDateKey())")
-        yesterdayReveal = nil   // yesterday is a different yesterday now
+        // Yesterday is a different yesterday now. Clearing alone was a
+        // bug: `loadYesterdayReveal` returns early unless the reveal is
+        // nil AND nothing else is loading, and nothing re-calls it on
+        // this path — the home view's `.task` already ran and will not
+        // run again — so the card simply vanished until the next cold
+        // start. Clear, then refetch.
+        yesterdayReveal = nil
         await load()
+        await loadYesterdayReveal()
     }
 
     func load(dateKey: String = DailyCoordinator.todayDateKey()) async {

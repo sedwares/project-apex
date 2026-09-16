@@ -234,18 +234,41 @@ final class TestSessionViewModel {
 
     /// Off the main actor: the solve walks the whole legal space, and
     /// the run bar has to stay responsive.
+    // ── WHY THESE CARRY A GENERATION TOKEN ─────────────────────────
+    // Both loaders await a detached solve and then ASSIGN the answer.
+    // Nothing checked that the question was still the same one. The lab
+    // lets you reroll the circuit or run again while a solve is in
+    // flight, so a slow answer could land on a newer run and attach
+    // last setup's advice to this setup's result — silently, and
+    // looking entirely plausible.
+    //
+    // `isAnalysisLoading` did not prevent it: it stops a SECOND solve
+    // starting, not the first one from finishing into a changed world.
+    // DailyCoordinator already uses this exact pattern for overlapping
+    // challenge loads; this is the same idea for the same reason.
+    // Raised in review 2026-09-17.
+    private var solveGeneration = 0
+
+    /// Call whenever the question changes: a new run, or new conditions.
+    private func invalidateSolves() {
+        solveGeneration += 1
+    }
+
     func loadAnalysis() async {
         guard let lastResult, analysis == nil, !isAnalysisLoading else { return }
         isAnalysisLoading = true
         defer { isAnalysisLoading = false }
+        let generation = solveGeneration
         let challenge = challengeAdapter
         let playerAverage = lastResult.averageLapTimeMillis
-        storedAnalysis = await Task.detached(priority: .userInitiated) {
+        let solved = await Task.detached(priority: .userInitiated) {
             DayAnalyzer.analyze(
                 challenge: challenge,
                 playerAverageLapMillis: playerAverage
             )
         }.value
+        guard generation == solveGeneration else { return }
+        storedAnalysis = solved
     }
 
     /// Sector deltas against the optimal setup, per lap — the same
@@ -268,13 +291,16 @@ final class TestSessionViewModel {
         guard let lastResult, advice == nil, !isAdviceLoading else { return }
         isAdviceLoading = true
         defer { isAdviceLoading = false }
+        let generation = solveGeneration
         let challenge = challengeAdapter
         let leading = FeedbackEngine.leadingEvent(in: lastResult)
-        storedAdvice = await Task.detached(priority: .userInitiated) {
+        let solved = await Task.detached(priority: .userInitiated) {
             SetupAdvisor.bestAdvice(
                 for: lastResult.setup, challenge: challenge, leadingEvent: leading
             )
         }.value
+        guard generation == solveGeneration else { return }
+        storedAdvice = solved
     }
 
     /// The lab's whole point: take the engineer's suggestion and run it
@@ -344,6 +370,7 @@ final class TestSessionViewModel {
             )
             storedResult = result
             runSelections = selections
+            invalidateSolves()   // any solve still in flight is for the previous run
             replayResult = result
             storedAdvice = nil   // recomputed for the new run by the view's task
 
@@ -405,6 +432,7 @@ final class TestSessionViewModel {
         storedAdvice = nil
         storedAnalysis = nil
         runSelections = [:]
+        invalidateSolves()   // the circuit changed under any in-flight solve
         bestAverageMillis = nil
         runCount = 0
         runHistory = []

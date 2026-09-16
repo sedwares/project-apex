@@ -375,6 +375,9 @@ final class DailyViewModel {
                 playerAverageLapMillis: playerAverage
             )
         }.value
+        // The solve landing changes the feedback's cache key, so rebuild
+        // it here rather than letting the next `body` pay for it.
+        await primeFeedback()
     }
 
     /// Computes the engineer's next test. ~128 simulations — fast, but
@@ -393,6 +396,36 @@ final class DailyViewModel {
                 for: result.setup, challenge: challenge, leadingEvent: leading
             )
         }.value
+        await primeFeedback()
+    }
+
+    /// Build the feedback OFF the main actor and leave it in the cache.
+    ///
+    /// Caching alone only fixed the repeat cost: the first `body` after
+    /// a change still ran the 128-simulation advisor inline, which is
+    /// mitigation rather than a fix (noted in review 2026-09-17). Doing
+    /// the work here means the getter is a dictionary hit on every path
+    /// the debrief actually takes. The synchronous fallback stays, so a
+    /// view that renders before this lands still shows real feedback
+    /// instead of a hole.
+    func primeFeedback() async {
+        guard let result else { return }
+        let challenge = self.challenge
+        let sectors = analysis?.optimalSectorTotalsMillis
+        let key = feedbackKey(for: result)
+        if feedbackCache?.key == key { return }
+        let generated = await Task.detached(priority: .userInitiated) {
+            FeedbackEngine.generate(
+                result: result,
+                challenge: challenge,
+                optimalSectorTotalsMillis: sectors
+            )
+        }.value
+        feedbackCache = (key, generated)
+    }
+
+    private func feedbackKey(for result: SimulationResult) -> String {
+        "\(result.resultHash)|\(analysis == nil ? "pending" : "solved")"
     }
 
     /// Optimal-setup reveal gates until the challenge day has closed
@@ -437,7 +470,7 @@ final class DailyViewModel {
 
     var feedback: EngineerFeedback? {
         guard let result else { return nil }
-        let key = "\(result.resultHash)|\(analysis == nil ? "pending" : "solved")"
+        let key = feedbackKey(for: result)
         if let cached = feedbackCache, cached.key == key { return cached.value }
         let generated = FeedbackEngine.generate(
             result: result,
