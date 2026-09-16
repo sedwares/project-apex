@@ -366,18 +366,32 @@ final class RaceScene: SKScene {
         var lastLapTime = 0.0
         var lap = 1
         var sectorsDone = 0
-        let tick = 1.0 / 60.0
+        var finalLapReported = false
 
-        let drive = SKAction.customAction(withDuration: totalDuration) { [weak self] _, _ in
+        // Read the REAL elapsed time SpriteKit passes in, rather than
+        // counting frames.
+        //
+        // This used to accumulate 1/60 per callback, which silently
+        // assumes the scene never misses a frame. It does — the trail
+        // rebuilds its path every frame — so over a nine-second replay
+        // the counter fell short of the duration, runProgress never
+        // reached 1.0, and the car stopped wherever the frame count ran
+        // out instead of on the start/finish line. A race that ends with
+        // the car parked halfway down the back straight reads as broken,
+        // because it is.
+        let drive = SKAction.customAction(withDuration: totalDuration) { [weak self] _, elapsedTime in
             guard let self else { return }
-            elapsed += tick
-            let runProgress = min(1.0, elapsed / totalDuration)
+            let now = min(Double(elapsedTime), totalDuration)
+            let delta = max(0, now - elapsed)
+            elapsed = now
+            let runProgress = totalDuration > 0 ? min(1.0, now / totalDuration) : 1.0
 
             // Where we are within THIS lap, in time.
             let lapTime = (runProgress * Double(totalLaps)).truncatingRemainder(dividingBy: 1.0)
 
             // Lap rollover: time went backwards.
             if lapTime < lastLapTime {
+                if lap == totalLaps { finalLapReported = true }
                 self.onLapComplete?(lap)
                 lap = min(lap + 1, totalLaps)
                 sectorsDone = 0
@@ -410,7 +424,7 @@ final class RaceScene: SKScene {
             self.pushTrail(pos, speed: speed)
 
             // Throttled HUD update.
-            self.sampleAccumulator += tick
+            self.sampleAccumulator += delta
             if self.sampleAccumulator >= self.sampleInterval {
                 self.sampleAccumulator = 0
                 let idx = min(sampleCount - 1, Int(runProgress * Double(sampleCount)))
@@ -420,7 +434,19 @@ final class RaceScene: SKScene {
 
         run(drive) { [weak self] in
             guard let self else { return }
-            self.onLapComplete?(totalLaps)
+            // Park exactly on the line. Even with real timing the last
+            // callback can land a few milliseconds short of the
+            // duration, and "a few milliseconds" at racing speed is a
+            // visible gap between the car and the start/finish.
+            let line = self.loop.point(at: 0)
+            self.car.position = line
+            self.car.zRotation = self.loop.heading(at: 0) - .pi / 2
+            self.carGlow.position = line
+            self.pushTrail(line, speed: self.loop.speed(atLapTime: 0))
+
+            // The rollover above may already have reported the last lap
+            // if the final callback landed exactly on the duration.
+            if !finalLapReported { self.onLapComplete?(totalLaps) }
             self.onFinished?()
         }
     }
