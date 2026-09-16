@@ -53,6 +53,8 @@ struct TestSessionView: View {
                     }
                     .listRowBackground(Theme.Color.panel)
                     .listRowSeparatorTint(Theme.Color.rule)
+                    // Remove leading inset so the stripe reaches the row edge.
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 } header: {
                     Text(category.displayName).apexLabel(Theme.Color.muted)
                 }
@@ -268,52 +270,15 @@ struct TestSessionView: View {
 
     // MARK: - Options
 
+    // Shared with the Daily bay and the Experiment — see
+    // EngineeringOptionRow for why all three draw the same row.
     private func optionRow(_ option: EngineeringOption, in category: EngineeringCategory) -> some View {
-        let isSelected = viewModel.selectedOption(in: category.id) == option.id
-        return Button {
+        EngineeringOptionRow(
+            option: option,
+            isSelected: viewModel.selectedOption(in: category.id) == option.id,
+            costDelta: viewModel.costDeltaIfComparable(for: option)
+        ) {
             viewModel.select(option.id)
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 17))
-                    .foregroundStyle(isSelected ? Theme.Color.signal : Theme.Color.faint)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(option.displayName)
-                        .font(Theme.Font.body(15))
-                        .foregroundStyle(Theme.Color.cream)
-                    effectCaption(for: option)
-                }
-                Spacer(minLength: 8)
-                Text("\(option.cost) cr")
-                    .apexData(13, color: Theme.Color.muted)
-            }
-            .padding(.vertical, 3)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-
-    /// Trade-off directions (§7): the SIGN carries stat direction, and
-    /// the colour carries goodness — but only the upside gets a colour.
-    ///
-    /// Downsides were amber, and 24 option rows of amber made the one
-    /// colour that is supposed to mean "warning" mean nothing: heat
-    /// climbing past 65%, an over-budget total, the biggest sector loss.
-    /// It was also the wrong claim. Every option in this game has a
-    /// downside by design — that is the whole game — so flagging the
-    /// price as an alarm tells the player to avoid something they cannot
-    /// avoid. The minus sign already says it costs you.
-    @ViewBuilder
-    private func effectCaption(for option: EngineeringOption) -> some View {
-        let upside = OptionEffectSummary.topUpside(of: option)
-        let downside = OptionEffectSummary.topDownside(of: option)
-        if upside != nil || downside != nil {
-            HStack(spacing: 8) {
-                if let upside { Text(upside).foregroundStyle(Theme.Color.gain) }
-                if let downside { Text(downside).foregroundStyle(Theme.Color.muted) }
-            }
-            .font(Theme.Font.body(11, weight: .medium))
         }
     }
 

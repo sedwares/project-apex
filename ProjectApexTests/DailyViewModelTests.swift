@@ -131,11 +131,58 @@ final class DailyViewModelTests: XCTestCase {
 
     func testCostDelta() {
         let vm = makeViewModel()
-        vm.select(.tiresMedium) // 12
         let soft = OptionLibrary.option(.tiresSoft)  // 21
         let hard = OptionLibrary.option(.tiresHard)  // 8
-        XCTAssertEqual(vm.costDelta(for: soft), 9)
-        XCTAssertEqual(vm.costDelta(for: hard), -4)
+        let medium = OptionLibrary.option(.tiresMedium) // 12
+
+        // Nothing chosen in the category yet, so there is no change to
+        // report — the row must print nothing rather than the option's
+        // own price with a plus sign in front of it.
+        XCTAssertNil(vm.costDeltaIfComparable(for: soft))
+
+        vm.select(.tiresMedium)
+        XCTAssertEqual(vm.costDeltaIfComparable(for: soft), 9)
+        XCTAssertEqual(vm.costDeltaIfComparable(for: hard), -4)
+        // Swapping a thing for itself is free, and "+0" is noise.
+        XCTAssertNil(vm.costDeltaIfComparable(for: medium))
+    }
+
+    /// The sandbox prices against the sandbox car, not the raced one —
+    /// otherwise every delta in the Experiment is measured from a setup
+    /// you have already moved away from.
+    func testExperimentCostDeltaUsesExperimentSelections() {
+        // budget: overrides the generated challenge and drops its
+        // regulation, so no ban can refuse a selection here.
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        vm.select(.tiresHard)   // official: 8
+        vm.submit()
+
+        vm.preloadExperiment(category: .tires, option: .tiresMedium) // sandbox: 12
+        let soft = OptionLibrary.option(.tiresSoft) // 21
+        XCTAssertEqual(vm.experimentCostDeltaIfComparable(for: soft), 9)
+        XCTAssertEqual(vm.costDeltaIfComparable(for: soft), 13)
+    }
+
+    func testExperimentOpensOnTheRacedSetupAndKeepsYourWork() {
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        vm.submit()
+
+        vm.beginExperimentIfNeeded()
+        XCTAssertEqual(vm.experimentSelections, vm.selections)
+
+        // Wander off and come back: the sandbox is yours, not a reset.
+        vm.experimentSelect(.tiresSoft)
+        vm.beginExperimentIfNeeded()
+        XCTAssertEqual(vm.experimentSelectedOption(in: .tires), .tiresSoft)
+    }
+
+    func testExperimentDoesNotOpenBeforeSubmit() {
+        let vm = makeViewModel(budget: 100)
+        selectAllBalanced(vm)
+        vm.beginExperimentIfNeeded()
+        XCTAssertTrue(vm.experimentSelections.isEmpty)
     }
 
     // MARK: - Submit lock semantics

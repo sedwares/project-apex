@@ -129,76 +129,20 @@ struct EngineeringBayView: View {
         }
     }
 
-    // MARK: - Option row (timing tower style)
+    // MARK: - Option row
 
+    // The row itself lives in EngineeringOptionRow — the Lab and the
+    // Experiment draw the same one, so a change here reaches all three.
     private func optionRow(_ option: EngineeringOption, in category: EngineeringCategory) -> some View {
-        let isSelected = viewModel.selectedOption(in: category.id) == option.id
-        let categoryHasSelection = viewModel.selectedOption(in: category.id) != nil
-        let delta = viewModel.costDelta(for: option)
-        let isBanned = viewModel.isBanned(option.id)
-
-        return Button {
+        EngineeringOptionRow(
+            option: option,
+            isSelected: viewModel.selectedOption(in: category.id) == option.id,
+            isBanned: viewModel.isBanned(option.id),
+            costDelta: viewModel.costDeltaIfComparable(for: option),
+            isEnabled: viewModel.phase != .submitted
+        ) {
             viewModel.select(option.id)
-        } label: {
-            HStack(spacing: 0) {
-                // Timing tower left stripe: red on selected, hairline on unselected.
-                Rectangle()
-                    .fill(isBanned ? Color.clear
-                          : (isSelected ? Theme.Color.signal : Theme.Color.rule))
-                    .frame(width: 3)
-                    .animation(.snappy(duration: 0.12), value: isSelected)
-
-                HStack(spacing: 12) {
-                    Image(systemName: isBanned
-                          ? "nosign"
-                          : (isSelected ? "checkmark.circle.fill" : "circle"))
-                        .font(.system(size: 17))
-                        .foregroundStyle(isBanned ? Theme.Color.faint
-                                         : (isSelected ? Theme.Color.signal : Theme.Color.faint))
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(option.displayName)
-                            .font(Theme.Font.body(15))
-                            .foregroundStyle(
-                                isBanned ? Theme.Color.faint
-                                : (isSelected ? Theme.Color.cream : Theme.Color.cream.opacity(0.70))
-                            )
-                            .strikethrough(isBanned)
-                        if isBanned {
-                            Text("Not permitted at this event")
-                                .font(Theme.Font.body(10.5, weight: .regular))
-                                .foregroundStyle(Theme.Color.faint)
-                        } else if option.topUpside != nil || option.topDownside != nil {
-                            HStack(spacing: 9) {
-                                if let up = option.topUpside {
-                                    Text(up).foregroundStyle(Theme.Color.gain)
-                                }
-                                if let down = option.topDownside {
-                                    Text(down).foregroundStyle(Theme.Color.muted)
-                                }
-                            }
-                            .font(Theme.Font.body(11, weight: .medium))
-                        }
-                    }
-
-                    Spacer(minLength: 8)
-
-                    if !isBanned && categoryHasSelection && !isSelected && delta != 0 {
-                        Text(delta > 0 ? "+\(delta)" : "\(delta)")
-                            .apexData(11, color: delta > 0 ? Theme.Color.notice : Theme.Color.gain)
-                    }
-                    Text("\(option.cost) cr")
-                        .apexData(13, color: Theme.Color.muted)
-                }
-                .padding(.vertical, 10)
-                .padding(.leading, 12)
-                .padding(.trailing, 16)
-                .contentShape(Rectangle())
-            }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .disabled(viewModel.phase == .submitted || isBanned)
     }
 
     // MARK: - Budget bar

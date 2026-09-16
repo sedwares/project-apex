@@ -7,6 +7,12 @@
 //  result is never touched — this is Test Session's soul, surfaced
 //  at the moment curiosity peaks.
 //
+//  CONSISTENCY PASS: this screen used to be the odd one out — no
+//  circuit header, no car, no demand chart, its own option row. It is
+//  the same job as the Bay (choose eight parts for this circuit), so
+//  it is now the same screen, differing only where the sandbox really
+//  differs: nothing is official, and the setup you raced is marked.
+//
 
 import SwiftUI
 import ProjectApexCore
@@ -25,6 +31,43 @@ struct ExperimentView: View {
             .listRowBackground(Theme.Color.panel)
             .listRowSeparator(.hidden)
 
+            // The sandbox car, built from the sandbox selections. This
+            // is where it earns its keep most: you are departing from a
+            // car you already raced, and the shape shows the departure.
+            Section {
+                VStack(spacing: 12) {
+                    SetupCarView(selections: viewModel.experimentSelections)
+                        .frame(height: 168)
+                        .frame(maxWidth: .infinity)
+
+                    SetupSpecGrid(selections: viewModel.experimentSelections)
+                }
+                .padding(.vertical, 8)
+            }
+            .listRowBackground(Theme.Color.panel)
+            .listRowSeparator(.hidden)
+
+            if !viewModel.experimentSelections.isEmpty {
+                Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(viewModel.experimentLivePreview.axes.enumerated()),
+                                id: \.element.name) { rank, axis in
+                            DemandAxisRow(axis: axis, rank: rank)
+                        }
+
+                        Text(DemandAxisRow.explainer)
+                            .font(Theme.Font.body(10.5, weight: .regular))
+                            .foregroundStyle(Theme.Color.faint)
+                            .padding(.top, 2)
+                    }
+                    .padding(.vertical, 6)
+                } header: {
+                    Text("What decides today").apexLabel(Theme.Color.muted)
+                }
+                .listRowBackground(Theme.Color.panel)
+                .listRowSeparator(.hidden)
+            }
+
             ForEach(OptionLibrary.categories) { category in
                 Section {
                     ForEach(category.options) { option in
@@ -32,6 +75,8 @@ struct ExperimentView: View {
                     }
                     .listRowBackground(Theme.Color.panel)
                     .listRowSeparatorTint(Theme.Color.rule)
+                    // Remove leading inset so the stripe reaches the row edge.
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 } header: {
                     Text(category.displayName).apexLabel(Theme.Color.muted)
                 }
@@ -44,62 +89,40 @@ struct ExperimentView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.Color.ink, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .safeAreaInset(edge: .bottom, spacing: 0) { testBar }
-    }
-
-    private func optionRow(_ option: EngineeringOption, in category: EngineeringCategory) -> some View {
-        let isSelected = viewModel.experimentSelectedOption(in: category.id) == option.id
-        let wasOfficial = viewModel.selectedOption(in: category.id) == option.id
-
-        return Button {
-            viewModel.experimentSelect(option.id)
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 17))
-                    .foregroundStyle(isSelected ? Theme.Color.signal : Theme.Color.faint)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(option.displayName)
-                        .font(Theme.Font.body(15))
-                        .foregroundStyle(Theme.Color.cream)
-                    effectCaption(for: option)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                CircuitContextHeader(
+                    circuit: viewModel.challenge.circuit,
+                    weather: viewModel.challenge.weather,
+                    budget: viewModel.budget
+                )
+                if let regulation = viewModel.regulationText {
+                    Text(regulation).apexNotice(Theme.Color.signal)
                 }
-                if wasOfficial {
-                    // The setup you actually raced, so a sandbox full of
-                    // changes still shows what you are departing from.
-                    Text("Raced")
-                        .font(Theme.Font.label(9))
-                        .tracking(1.1)
-                        .textCase(.uppercase)
-                        .foregroundStyle(Theme.Color.faint)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .overlay(Rectangle().stroke(Theme.Color.rule, lineWidth: 1))
-                }
-                Spacer(minLength: 8)
-                Text("\(option.cost) cr")
-                    .apexData(13, color: Theme.Color.muted)
             }
-            .padding(.vertical, 3)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .safeAreaInset(edge: .bottom, spacing: 0) { testBar }
+        .onAppear { viewModel.beginExperimentIfNeeded() }
     }
 
-
-    /// Trade-off directions (§7): the SIGN carries stat direction. Only
-    /// the upside gets a colour — see TestSessionView for why the
-    /// downside lost its amber.
-    @ViewBuilder
-    private func effectCaption(for option: EngineeringOption) -> some View {
-        let upside = OptionEffectSummary.topUpside(of: option)
-        let downside = OptionEffectSummary.topDownside(of: option)
-        if upside != nil || downside != nil {
-            HStack(spacing: 9) {
-                if let upside { Text(upside).foregroundStyle(Theme.Color.gain) }
-                if let downside { Text(downside).foregroundStyle(Theme.Color.muted) }
-            }
-            .font(Theme.Font.body(11, weight: .medium))
+    // Shared with the Daily bay and the Lab — see EngineeringOptionRow.
+    //
+    // `isBanned` is the fix this consistency pass was worth doing for.
+    // `experimentSelect` has always refused a banned option, but this
+    // screen drew it as an ordinary row, so the tap did nothing and
+    // said nothing. Now it strikes through, explains itself and stops
+    // accepting taps, exactly as it does in the Bay.
+    private func optionRow(_ option: EngineeringOption, in category: EngineeringCategory) -> some View {
+        EngineeringOptionRow(
+            option: option,
+            isSelected: viewModel.experimentSelectedOption(in: category.id) == option.id,
+            isBanned: viewModel.isBanned(option.id),
+            costDelta: viewModel.experimentCostDeltaIfComparable(for: option),
+            // The setup you actually raced, so a sandbox full of changes
+            // still shows what you are departing from.
+            badge: viewModel.selectedOption(in: category.id) == option.id ? "Raced" : nil
+        ) {
+            viewModel.experimentSelect(option.id)
         }
     }
 

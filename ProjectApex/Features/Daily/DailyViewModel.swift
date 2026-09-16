@@ -174,11 +174,23 @@ final class DailyViewModel {
         selections[category]
     }
 
-    /// Cost change if this option replaced the current pick in its
-    /// category. Drives "+9 / −4" labels in the Bay.
-    func costDelta(for option: EngineeringOption) -> Int {
-        let current = selections[option.category].map { OptionLibrary.option($0).cost } ?? 0
-        return option.cost - current
+    /// The delta an option row prints: the cost change if this option
+    /// replaced the current pick in its category — "+9 / −4" beside the
+    /// price.
+    ///
+    /// Nil when there is nothing to compare against yet, or when the
+    /// swap is free. This used to return a plain Int against an assumed
+    /// current cost of zero, so an untouched category printed "+34" —
+    /// the option's own price, dressed up as a change.
+    func costDeltaIfComparable(for option: EngineeringOption) -> Int? {
+        Self.delta(for: option, against: selections)
+    }
+
+    static func delta(for option: EngineeringOption,
+                      against picks: [EngineeringCategoryID: EngineeringOptionID]) -> Int? {
+        guard let current = picks[option.category] else { return nil }
+        let change = option.cost - OptionLibrary.option(current).cost
+        return change == 0 ? nil : change
     }
 
     // MARK: - Actions (official build)
@@ -436,8 +448,37 @@ final class DailyViewModel {
         return test - official
     }
 
+    /// Open the sandbox on the car you actually raced.
+    ///
+    /// This screen has always described itself as "edit a copy of the
+    /// locked setup", but the sandbox started EMPTY unless you arrived
+    /// by the engineer's "Next test" shortcut. The plain Experiment
+    /// button therefore asked you to rebuild all eight choices from
+    /// nothing before anything could be run — and, now that the screen
+    /// draws the car, to stare at an empty chassis while doing it.
+    ///
+    /// Idempotent, so navigating away and back keeps what you were
+    /// trying rather than resetting you to the official setup.
+    func beginExperimentIfNeeded() {
+        guard phase == .submitted, experimentSelections.isEmpty else { return }
+        experimentSelections = selections
+        experimentResult = nil
+    }
+
     func experimentSelectedOption(in category: EngineeringCategoryID) -> EngineeringOptionID? {
         experimentSelections[category]
+    }
+
+    func experimentCostDeltaIfComparable(for option: EngineeringOption) -> Int? {
+        Self.delta(for: option, against: experimentSelections)
+    }
+
+    /// The sandbox car's profile against today's circuit — same chart
+    /// the Bay draws while you build, so the read you carried out of
+    /// the Bay still means the same thing here.
+    var experimentLivePreview: VehicleProfile {
+        let setup = PlayerSetup(challengeId: challenge.id, selectedOptions: experimentSelections)
+        return VehicleProfile.from(setup: setup, circuit: challenge.circuit)
     }
 
     func experimentSelect(_ optionID: EngineeringOptionID) {

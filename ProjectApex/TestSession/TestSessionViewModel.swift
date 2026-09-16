@@ -280,6 +280,23 @@ final class TestSessionViewModel {
         selections[category]
     }
 
+    /// The delta an option row should PRINT — nil before anything is
+    /// chosen in the category, or when the swap is free. The lab has a
+    /// budget too, so the number means exactly what it means in the Bay.
+    func costDeltaIfComparable(for option: EngineeringOption) -> Int? {
+        guard let current = selections[option.category] else { return nil }
+        let change = option.cost - OptionLibrary.option(current).cost
+        return change == 0 ? nil : change
+    }
+
+    /// Live Vehicle Profile as you build, against the bench's circuit.
+    /// The Bay has drawn this since pass 7; the lab is where you are
+    /// most likely to be testing a theory about it.
+    var livePreview: VehicleProfile {
+        let setup = PlayerSetup(challengeId: circuit.id, selectedOptions: selections)
+        return VehicleProfile.from(setup: setup, circuit: circuit)
+    }
+
     /// What the car on the bench currently IS, before it has run.
     ///
     /// `SimulationResult` already carries a `setupIdentity`, but only
