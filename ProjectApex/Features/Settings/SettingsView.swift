@@ -111,12 +111,25 @@ struct SettingsView: View {
                     // nothing. The account IS going either way, and the
                     // difference is worth a sentence rather than a
                     // silent dismiss.
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 10) {
                         Text("Deletion in progress")
                             .apexLabel(Theme.Color.cream)
                         Text(deletionNotice)
                             .font(Theme.Font.body(11.5, weight: .regular))
                             .foregroundStyle(Theme.Color.muted)
+
+                        // The reset is deferred to this tap. Until it
+                        // fires, Home still has the old coordinator and
+                        // onboardingSeen is untouched, so nothing can
+                        // cover this message.
+                        Button {
+                            onboardingSeen = false
+                            onDeleted?(.queued)
+                            dismiss()
+                        } label: {
+                            Text("Done").apexLabel(Theme.Color.signal)
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.vertical, 3)
                 } else {
@@ -211,20 +224,30 @@ struct SettingsView: View {
         deletionError = nil
         do {
             let outcome = try await deleter.deleteAccount()
-            // Back to a genuinely fresh start: the next launch signs in
-            // anonymously as a NEW uid, so onboarding is honest again.
-            onboardingSeen = false
-            onDeleted?(outcome)
 
             switch outcome {
             case .completed:
+                // Back to a genuinely fresh start: the next launch signs
+                // in anonymously as a NEW uid, so onboarding is honest
+                // again.
+                onboardingSeen = false
+                onDeleted?(outcome)
                 dismiss()
+
             case .queued:
-                // Do NOT dismiss silently. This device could not remove
-                // the sign-in itself, so the backend finishes the job —
-                // which is a real difference the player is entitled to
-                // know about, and the reason the outcome type exists.
-                deletionNotice = "Your data has been removed from this device and the rest is being erased on our side. You can close the app; nothing else is needed from you."
+                // ── ORDER MATTERS HERE ──────────────────────────
+                // The first version of this set `onboardingSeen = false`
+                // and reset the coordinator BEFORE showing the notice —
+                // which makes Home present onboarding full-screen over
+                // the top of it. The message existed and nobody would
+                // ever have read it.
+                //
+                // So the acknowledgement comes first and the reset waits
+                // for it. This device could not remove the sign-in
+                // itself and the backend is finishing the job, which is
+                // a real difference the player is entitled to know
+                // about, and the reason the outcome type exists at all.
+                deletionNotice = "Your data has been removed from this device and the rest is being erased on our side. Nothing else is needed from you."
             }
         } catch {
             deletionError = "Couldn't start deletion: \(error.localizedDescription). "

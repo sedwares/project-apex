@@ -15,8 +15,6 @@ import ProjectApexCore
 @MainActor
 enum FirebaseBootstrap {
 
-    /// Signs in anonymously (or reuses the session) and ensures the
-    /// player profile exists. Returns (uid, callsign).
     /// UserDefaults key proving this install has run before.
     ///
     /// UserDefaults is wiped when the app is deleted. The Firebase Auth
@@ -58,6 +56,16 @@ enum FirebaseBootstrap {
         defaults.string(forKey: pendingDeletionUIDKey)
     }
 
+    /// An outstanding obligation to drop the current session.
+    ///
+    /// Written BEFORE the sign-out is attempted and cleared only once it
+    /// succeeds, so the decision outlives a failed attempt. Without it a
+    /// failed sign-out lost its own conclusion: App.init carried on, a
+    /// startup task wrote an apex.* preference, and the retry inside
+    /// ensureSignedIn then read the install as an upgrade and kept the
+    /// session it had already rejected.
+    static let mustDropSessionKey = "apex.install.mustDropSession"
+
     /// Whether an absent install marker means UPGRADE rather than fresh
     /// install.
     ///
@@ -70,14 +78,14 @@ enum FirebaseBootstrap {
         // The marker and the pending-deletion note are bookkeeping, not
         // evidence that anybody has played. Counting them would make the
         // check answer its own question.
-        let bookkeeping: Set<String> = [installMarker, pendingDeletionUIDKey]
+        let bookkeeping: Set<String> = [
+            installMarker, pendingDeletionUIDKey, mustDropSessionKey
+        ]
         return defaults.dictionaryRepresentation().keys.contains { key in
             key.hasPrefix("apex.") && !bookkeeping.contains(key)
         }
     }
 
-    /// Signs in anonymously (or reuses the session) and ensures the
-    /// player profile exists. Returns (uid, callsign).
     /// Settle "is this a fresh install, an upgrade, or an account we
     /// must refuse" BEFORE anything else can touch UserDefaults.
     ///
@@ -101,50 +109,65 @@ enum FirebaseBootstrap {
     /// be. Startup must not continue on an identity it rejected.
     @discardableResult
     static func resolveInstallState(defaults: UserDefaults = .standard) -> Bool {
-        // Never sign in as an account queued for deletion. Independent
-        // of the install marker on purpose — a fact recorded at deletion
-        // time, not something inferred from what is missing.
+        // 1. A recorded obligation from a previous attempt outranks
+        //    everything else. It exists because the evidence the other
+        //    branches read can be written by anybody after the fact:
+        //    a failed sign-out used to lose its own decision, the app
+        //    carried on, a startup task wrote an apex.* preference, and
+        //    the retry then read the install as an upgrade and kept the
+        //    session it had already rejected. An obligation that does
+        //    not outlive the attempt is not an obligation.
+        if defaults.bool(forKey: mustDropSessionKey) {
+            return dropSession(defaults: defaults, reason: "retrying an earlier failed sign-out")
+        }
+
+        // 2. Never sign in as an account queued for deletion.
         if let pending = pendingDeletionUID(defaults: defaults),
            let current = Auth.auth().currentUser, current.uid == pending {
-            do {
-                try Auth.auth().signOut()
-                DebugLog.log("dropped the session queued for deletion: \(pending)")
-                defaults.removeObject(forKey: pendingDeletionUIDKey)
-                defaults.set(true, forKey: installMarker)
-            } catch {
-                CrashReporting.log("could not drop the deleted account's session", error: error)
-                return false
-            }
+            defaults.set(true, forKey: mustDropSessionKey)
+            return dropSession(defaults: defaults, reason: "queued for deletion: \(pending)")
         }
 
         guard !defaults.bool(forKey: installMarker) else { return true }
 
-        // An absent marker means one of two opposite things: a genuine
-        // fresh install, or an upgrade from a build before the marker
-        // existed. Deleting an app takes its UserDefaults and leaves the
-        // keychain, so any apex.* key proves this install has run before.
+        // 3. An absent marker means one of two opposite things: a
+        //    genuine fresh install, or an upgrade from a build before
+        //    the marker existed. Deleting an app takes its UserDefaults
+        //    and leaves the keychain, so any apex.* key proves this
+        //    install has run before.
         if isUpgradeFromPreMarkerBuild(defaults: defaults) {
-            DebugLog.log("upgrade from a pre-marker build — keeping the existing session")
+            DebugLog.log("upgrade from a pre-marker build: keeping the existing session")
             defaults.set(true, forKey: installMarker)
             return true
         }
 
-        guard let existing = Auth.auth().currentUser else {
+        guard Auth.auth().currentUser != nil else {
             defaults.set(true, forKey: installMarker)
             return true
         }
 
-        // A session outliving its install.
+        // 4. A session outliving its install. Record the obligation
+        //    BEFORE attempting it, so a failure cannot erase the fact
+        //    that it was owed.
+        defaults.set(true, forKey: mustDropSessionKey)
+        return dropSession(defaults: defaults, reason: "fresh install with a keychain session")
+    }
+
+    /// Drops the current session and settles the install state.
+    ///
+    /// Returns false when the sign-out failed, leaving the obligation
+    /// recorded so the next attempt retries regardless of what has been
+    /// written to UserDefaults in the meantime.
+    private static func dropSession(defaults: UserDefaults, reason: String) -> Bool {
         do {
             try Auth.auth().signOut()
-            DebugLog.log("fresh install with a keychain session — signed out \(existing.uid)")
+            DebugLog.log("dropped session: \(reason)")
+            defaults.removeObject(forKey: mustDropSessionKey)
+            defaults.removeObject(forKey: pendingDeletionUIDKey)
             defaults.set(true, forKey: installMarker)
             return true
         } catch {
-            // Not marked done, and the caller must not continue: logging
-            // a rejection and then honouring the session anyway is worse
-            // than either.
-            CrashReporting.log("install-marker sign-out failed", error: error)
+            CrashReporting.log("sign-out failed: \(reason)", error: error)
             return false
         }
     }

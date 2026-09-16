@@ -293,6 +293,36 @@ final class DailyViewModelTests: XCTestCase {
         XCTAssertTrue(suite.bool(forKey: FirebaseBootstrap.installMarker))
     }
 
+    /// A sign-out that has to happen must survive failing to happen.
+    /// The obligation is recorded before the attempt, so a later pass
+    /// retries it no matter what else has been written to UserDefaults
+    /// in between — which is exactly the hole a failed sign-out left
+    /// when the decision was re-derived each time.
+    func testAnOutstandingSignOutOutranksEverythingElse() {
+        let suite = UserDefaults(suiteName: "apex.tests.obligation")!
+        defer { UserDefaults.standard.removePersistentDomain(forName: "apex.tests.obligation") }
+        for key in suite.dictionaryRepresentation().keys { suite.removeObject(forKey: key) }
+
+        // Pretend a previous attempt recorded the obligation and failed,
+        // and that startup has since written a preference of its own.
+        suite.set(true, forKey: FirebaseBootstrap.mustDropSessionKey)
+        suite.set(41, forKey: "apex.analytics.firstOpenDayNumber")
+
+        // That analytics key would make the detector call this an
+        // upgrade — the obligation must be consulted first and win.
+        XCTAssertTrue(
+            FirebaseBootstrap.isUpgradeFromPreMarkerBuild(defaults: suite),
+            "precondition: the stray key does look like prior use"
+        )
+
+        // No Firebase session in the test host, so the drop succeeds
+        // trivially and must clear the obligation and settle the state.
+        XCTAssertTrue(FirebaseBootstrap.resolveInstallState(defaults: suite))
+        XCTAssertFalse(suite.bool(forKey: FirebaseBootstrap.mustDropSessionKey),
+                       "a satisfied obligation must be cleared")
+        XCTAssertTrue(suite.bool(forKey: FirebaseBootstrap.installMarker))
+    }
+
     // MARK: - Links
 
     /// AppLinks.privacyPolicy is force-unwrapped, and the same URL has
