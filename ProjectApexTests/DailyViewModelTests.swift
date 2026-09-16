@@ -303,9 +303,10 @@ final class DailyViewModelTests: XCTestCase {
         let owned = [
             "apex.daily.2026-07-16", "apex.daily.2026-07-17",
             "apex.streak.current", "apex.challengeCache.2026-07-16",
-            "apex.onboarding.seen", "apex.install.seen"
+            "apex.onboarding.seen"
         ]
         for key in owned { suite.set("x", forKey: key) }
+        suite.set(true, forKey: FirebaseBootstrap.installMarker)
         suite.set("keep me", forKey: "unrelated.setting")
 
         AccountDeletionService(defaults: suite).clearLocalData()
@@ -313,6 +314,26 @@ final class DailyViewModelTests: XCTestCase {
         for key in owned {
             XCTAssertNil(suite.object(forKey: key), "\(key) survived deletion")
         }
+
+        // ── THE INSTALL MARKER MUST SURVIVE ─────────────────────
+        // This assertion is INVERTED from what it was, deliberately.
+        //
+        // Build 22 cleared the marker here so the next launch would look
+        // like a fresh install and mint a new identity. That inference
+        // died when the upgrade detector arrived: it counts any apex.*
+        // key as prior use, and apex.notifications.didRequestAuthorization
+        // survives this method — so the next launch read as an upgrade
+        // and restored the session being deleted.
+        //
+        // The marker is a fact about the INSTALL, not about the account.
+        // The app has run on this device; clearing it was always a lie
+        // told to influence a downstream decision. That decision is now
+        // made from FirebaseBootstrap.pendingDeletionUIDKey, which says
+        // outright which identity is rejected.
+        XCTAssertNotNil(
+            suite.object(forKey: FirebaseBootstrap.installMarker),
+            "the marker records that this install has run, which is still true"
+        )
         XCTAssertNotNil(
             suite.object(forKey: "unrelated.setting"),
             "deletion must not reach beyond the app's own keys"
