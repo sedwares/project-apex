@@ -22,6 +22,30 @@ struct TestSessionView: View {
         List {
             conditionsSection
 
+            // The same car as the Daily bay. The lab is where setups are
+            // tried side by side, so seeing the whole thing at once
+            // matters MORE here than there — you are comparing against
+            // the run you just did, and the spec grid is the only place
+            // all eight choices are legible without scrolling.
+            Section {
+                VStack(spacing: 12) {
+                    SetupCarView(selections: viewModel.selections)
+                        .frame(height: 168)
+                        .frame(maxWidth: .infinity)
+
+                    SetupSpecGrid(selections: viewModel.selections)
+
+                    if let identity = viewModel.identityPreview {
+                        Text(identity.displayText)
+                            .apexDisplay(16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .listRowBackground(Theme.Color.panel)
+            .listRowSeparator(.hidden)
+
             ForEach(OptionLibrary.categories) { category in
                 Section {
                     ForEach(category.options) { option in

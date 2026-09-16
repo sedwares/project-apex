@@ -280,6 +280,18 @@ final class TestSessionViewModel {
         selections[category]
     }
 
+    /// What the car on the bench currently IS, before it has run.
+    ///
+    /// `SimulationResult` already carries a `setupIdentity`, but only
+    /// once a run exists. The lab is for trying things, so the identity
+    /// has to update as you try them — same derivation the Daily bay
+    /// uses for its own preview.
+    var identityPreview: SetupIdentity? {
+        guard isComplete else { return nil }
+        let setup = PlayerSetup(challengeId: circuit.id, selectedOptions: selections)
+        return SetupIdentity.derive(from: VehicleBuilder.build(from: setup))
+    }
+
     // MARK: - Actions
 
     func select(_ optionID: EngineeringOptionID) {
