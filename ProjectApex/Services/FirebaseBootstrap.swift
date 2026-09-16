@@ -78,13 +78,32 @@ enum FirebaseBootstrap {
 
     /// Signs in anonymously (or reuses the session) and ensures the
     /// player profile exists. Returns (uid, callsign).
-    static func ensureSignedIn(
-        defaults: UserDefaults = .standard
-    ) async throws -> (uid: String, displayName: String) {
-        // BEFORE anything else: never sign in as an account that is
-        // queued for deletion. This is independent of the install
-        // marker on purpose — it is a fact recorded at deletion time,
-        // not something inferred from what is missing.
+    /// Settle "is this a fresh install, an upgrade, or an account we
+    /// must refuse" BEFORE anything else can touch UserDefaults.
+    ///
+    /// ── WHY THIS IS NOT INSIDE ensureSignedIn ANY MORE ──────────
+    /// It was, and that made it a race it could lose. DailyHomeView
+    /// attaches several `.task` blocks; one of them calls
+    /// `Analytics.trackOpen` SYNCHRONOUSLY before its first await, and
+    /// that writes `apex.analytics.firstOpenDayNumber`. The other
+    /// reaches this code only through an `await`. So on a genuine
+    /// reinstall — keychain session present, UserDefaults empty —
+    /// analytics could write first, the detector would find an apex.*
+    /// key, call it an upgrade, and keep the identity the reinstall was
+    /// supposed to replace. Silently, and only sometimes.
+    ///
+    /// Called from ProjectApexApp.init(), before any view exists, so no
+    /// task can get in front of it. Idempotent: once the marker is set
+    /// both branches are no-ops, so ensureSignedIn calling it again
+    /// costs nothing and guarantees it happened.
+    ///
+    /// Returns false when a session that had to be dropped could not
+    /// be. Startup must not continue on an identity it rejected.
+    @discardableResult
+    static func resolveInstallState(defaults: UserDefaults = .standard) -> Bool {
+        // Never sign in as an account queued for deletion. Independent
+        // of the install marker on purpose — a fact recorded at deletion
+        // time, not something inferred from what is missing.
         if let pending = pendingDeletionUID(defaults: defaults),
            let current = Auth.auth().currentUser, current.uid == pending {
             do {
@@ -94,56 +113,51 @@ enum FirebaseBootstrap {
                 defaults.set(true, forKey: installMarker)
             } catch {
                 CrashReporting.log("could not drop the deleted account's session", error: error)
-                throw BootstrapError.rejectedSessionSurvived
+                return false
             }
         }
 
-        if !defaults.bool(forKey: installMarker) {
-            // ── AN ABSENT MARKER IS AMBIGUOUS ────────────────────
-            // It means one of two completely different things:
-            //
-            //   · a genuine fresh install — wipe the inherited session;
-            //   · an UPGRADE from a build before this marker existed —
-            //     leave the player's identity alone.
-            //
-            // Build 22 assumed the first and only the first, which would
-            // have signed out every existing tester on update: new uid,
-            // orphaned leaderboard rows, and — since build 24 — records
-            // owned by an account they no longer are. Found in review
-            // 2026-09-17 before it reached anybody.
-            //
-            // The two cases are distinguishable, because deleting an app
-            // takes its UserDefaults with it. Any apex.* key at all
-            // means this install has run before, whatever the keychain
-            // says.
-            if Self.isUpgradeFromPreMarkerBuild(defaults: defaults) {
-                DebugLog.log("upgrade from a pre-marker build — keeping the existing session")
-                defaults.set(true, forKey: installMarker)
-            } else if let existing = Auth.auth().currentUser {
-                // A session outliving its install: the keychain survives
-                // app deletion, UserDefaults does not.
-                do {
-                    try Auth.auth().signOut()
-                    DebugLog.log("fresh install with a keychain session — signed out \(existing.uid)")
-                    defaults.set(true, forKey: installMarker)
-                } catch {
-                    // Not marked done, AND not continued past.
-                    //
-                    // The first version swallowed this and set the flag
-                    // anyway, so one transient failure stranded a player
-                    // on a session that should have been dropped. The
-                    // second left the flag unset but fell through to use
-                    // that session — which then wrote apex.* keys of its
-                    // own, so the NEXT launch classified the install as
-                    // an upgrade and kept it permanently. Logging a
-                    // rejection and then honouring it anyway is worse
-                    // than either.
-                    CrashReporting.log("install-marker sign-out failed", error: error)
-                    throw BootstrapError.rejectedSessionSurvived
-                }
-            } else {
-                defaults.set(true, forKey: installMarker)
-            }
+        guard !defaults.bool(forKey: installMarker) else { return true }
+
+        // An absent marker means one of two opposite things: a genuine
+        // fresh install, or an upgrade from a build before the marker
+        // existed. Deleting an app takes its UserDefaults and leaves the
+        // keychain, so any apex.* key proves this install has run before.
+        if isUpgradeFromPreMarkerBuild(defaults: defaults) {
+            DebugLog.log("upgrade from a pre-marker build — keeping the existing session")
+            defaults.set(true, forKey: installMarker)
+            return true
+        }
+
+        guard let existing = Auth.auth().currentUser else {
+            defaults.set(true, forKey: installMarker)
+            return true
+        }
+
+        // A session outliving its install.
+        do {
+            try Auth.auth().signOut()
+            DebugLog.log("fresh install with a keychain session — signed out \(existing.uid)")
+            defaults.set(true, forKey: installMarker)
+            return true
+        } catch {
+            // Not marked done, and the caller must not continue: logging
+            // a rejection and then honouring the session anyway is worse
+            // than either.
+            CrashReporting.log("install-marker sign-out failed", error: error)
+            return false
+        }
+    }
+
+    /// Signs in anonymously (or reuses the session) and ensures the
+    /// player profile exists. Returns (uid, callsign).
+    static func ensureSignedIn(
+        defaults: UserDefaults = .standard
+    ) async throws -> (uid: String, displayName: String) {
+        // Already done in App.init; repeated here because a guarantee
+        // that lives in one call site is not a guarantee.
+        guard resolveInstallState(defaults: defaults) else {
+            throw BootstrapError.rejectedSessionSurvived
         }
 
         let user: User

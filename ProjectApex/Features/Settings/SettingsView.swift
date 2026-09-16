@@ -32,6 +32,7 @@ struct SettingsView: View {
     @State private var confirmingDelete = false
     @State private var isDeleting = false
     @State private var deletionError: String?
+    @State private var deletionNotice: String?
 
     var body: some View {
         List {
@@ -101,6 +102,24 @@ struct SettingsView: View {
             .listRowSeparatorTint(Theme.Color.rule)
 
             Section {
+                if let deletionNotice {
+                    // ── THE QUEUED OUTCOME, SAID OUT LOUD ────────────
+                    // deleteAccount has returned .completed or .queued
+                    // since build 22 and nothing read it, so a player
+                    // whose auth user could not be removed on this
+                    // device was told exactly what a player whose was:
+                    // nothing. The account IS going either way, and the
+                    // difference is worth a sentence rather than a
+                    // silent dismiss.
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Deletion in progress")
+                            .apexLabel(Theme.Color.cream)
+                        Text(deletionNotice)
+                            .font(Theme.Font.body(11.5, weight: .regular))
+                            .foregroundStyle(Theme.Color.muted)
+                    }
+                    .padding(.vertical, 3)
+                } else {
                 Button(role: .destructive) {
                     confirmingDelete = true
                 } label: {
@@ -129,6 +148,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isDeleting)
+                }
             } header: {
                 Text("Data").apexLabel(Theme.Color.muted)
             } footer: {
@@ -195,7 +215,17 @@ struct SettingsView: View {
             // anonymously as a NEW uid, so onboarding is honest again.
             onboardingSeen = false
             onDeleted?(outcome)
-            dismiss()
+
+            switch outcome {
+            case .completed:
+                dismiss()
+            case .queued:
+                // Do NOT dismiss silently. This device could not remove
+                // the sign-in itself, so the backend finishes the job —
+                // which is a real difference the player is entitled to
+                // know about, and the reason the outcome type exists.
+                deletionNotice = "Your data has been removed from this device and the rest is being erased on our side. You can close the app; nothing else is needed from you."
+            }
         } catch {
             deletionError = "Couldn't start deletion: \(error.localizedDescription). "
                 + "Nothing has been deleted — please try again."

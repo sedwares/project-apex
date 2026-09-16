@@ -275,6 +275,24 @@ final class DailyViewModelTests: XCTestCase {
         XCTAssertNil(suite.object(forKey: "apex.onboarding.seen"))
     }
 
+    /// resolveInstallState is idempotent, which is what makes calling it
+    /// from BOTH App.init and ensureSignedIn safe — and calling it from
+    /// both is what closes the startup race, because a guarantee that
+    /// lives in one call site is not a guarantee.
+    func testResolvingInstallStateTwiceIsHarmless() {
+        let suite = UserDefaults(suiteName: "apex.tests.resolve")!
+        defer { UserDefaults.standard.removePersistentDomain(forName: "apex.tests.resolve") }
+        for key in suite.dictionaryRepresentation().keys { suite.removeObject(forKey: key) }
+
+        // No Firebase session in a test host, so this is the
+        // nothing-to-drop path: it must settle and stay settled.
+        XCTAssertTrue(FirebaseBootstrap.resolveInstallState(defaults: suite))
+        XCTAssertTrue(suite.bool(forKey: FirebaseBootstrap.installMarker))
+
+        XCTAssertTrue(FirebaseBootstrap.resolveInstallState(defaults: suite))
+        XCTAssertTrue(suite.bool(forKey: FirebaseBootstrap.installMarker))
+    }
+
     // MARK: - Links
 
     /// AppLinks.privacyPolicy is force-unwrapped, and the same URL has
