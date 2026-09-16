@@ -118,9 +118,26 @@ public nonisolated struct Circuit: Codable, Hashable, Sendable, Identifiable {
     }
 
     /// The stats worth showing the player before they build, strongest
-    /// first. Four is the honest number: on every generated circuit the
-    /// top four cover 55–70% of the lap's demand, and a fifth axis adds
-    /// noise rather than information.
+    /// first. Four is the honest number for the LINEAR part of the lap:
+    /// measured over 540 generated circuits the top four cover a mean of
+    /// 71% of section demand (range 55–93%), and a fifth axis adds noise
+    /// rather than information.
+    ///
+    /// ── WHAT THIS CANNOT SHOW, AND WHY IT MATTERS ──────────────────
+    /// These shares come from section demand weights, so they describe
+    /// only the per-section scoring. Lap 3's degradation — tyre wear,
+    /// the heat deficit and the reliability penalty — has no section
+    /// weight to contribute and therefore never appears here: over 540
+    /// days `cooling` and `reliability` make the top four on 1% of days,
+    /// `tireDurability` and `weight` on 0%, and `heatGeneration` never.
+    ///
+    /// Lap 3 is not a rounding error. Its cost varies by 3.28s per lap
+    /// across the legal field — 0.84× the whole best-to-median gap — and
+    /// ignoring it entirely reshuffles 27% of the top decile. So a
+    /// player who builds only against this chart will systematically
+    /// under-buy exactly the three systems where a mistake is most
+    /// expensive. The fix is a second readout driven by the lap-3 model,
+    /// not a fifth axis here. See `apex-design-evaluation-2026-09-16`.
     public func decidingStats(limit: Int = 4) -> [(key: StatKey, shareBP: Int)] {
         Array(statDemandBP.prefix(limit))
     }

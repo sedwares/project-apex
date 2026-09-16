@@ -527,7 +527,21 @@ struct DailyHomeView: View {
         }
     }
 
+    /// The practice modes sat at the same visual weight as the daily CTA
+    /// with nothing saying which one is the game. A first-time player
+    /// could spend a whole session in Quick Race and never reach today's
+    /// assignment — and Quick Race is unlimited, so nothing about it
+    /// feels like it ought to end.
     private var testSessionButtons: some View {
+        VStack(spacing: 7) {
+            practiceRow
+            Text("Practice — unlimited runs, nothing is recorded")
+                .font(Theme.Font.body(10.5, weight: .regular))
+                .foregroundStyle(Theme.Color.faint)
+        }
+    }
+
+    private var practiceRow: some View {
         HStack(spacing: 10) {
             NavigationLink {
                 TestSessionView(viewModel: .quickRace())
@@ -550,14 +564,10 @@ struct DailyHomeView: View {
 
     // MARK: - Presentation helpers
 
+    /// Shared with the build-screen header — see WeatherCopy for why
+    /// these lines describe the conditions instead of advising a build.
     private func weatherEffects(_ weather: Weather) -> (symbol: String, effect: String) {
-        switch weather {
-        case .sunny: return ("sun.max", "Clean conditions — pure setup racing")
-        case .hot: return ("thermometer.sun", "Cooling and tires taxed on the final lap")
-        case .cold: return ("snowflake", "Slow warm-up, less grip early")
-        case .rain: return ("cloud.rain", "Grip and braking cut — stability pays")
-        case .windy: return ("wind", "Stability and aero efficiency taxed")
-        }
+        (WeatherCopy.symbol(weather), WeatherCopy.effect(weather))
     }
 
     private func circuitTitle(_ name: String) -> String {

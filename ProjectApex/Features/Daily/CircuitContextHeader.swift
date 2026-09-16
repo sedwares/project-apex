@@ -74,9 +74,39 @@ struct CircuitContextHeader: View {
         }
     }
 
-    // MARK: - Weather helpers
+    private func weatherSymbol(_ w: Weather) -> String { WeatherCopy.symbol(w) }
+    private func weatherEffect(_ w: Weather) -> String { WeatherCopy.effect(w) }
+}
 
-    private func weatherSymbol(_ w: Weather) -> String {
+// MARK: - Weather copy
+
+/// One set of weather strings for the whole app — the home brief and
+/// this header used to carry their own copies.
+///
+/// ── WHY THESE LINES SAY WHAT THEY SAY ──────────────────────────────
+/// They state the modifier and stop. The previous copy gave advice
+/// ("stability pays" in the rain), and the advice was wrong twice over:
+/// rain does not touch stability at all (`Weather.statModifiersBP`
+/// changes only grip and braking), and more importantly weather is not
+/// a build decision in this simulation.
+///
+/// Measured over 720 days: build the car that is optimal for today's
+/// circuit assuming Sunny, race it in the real weather, and you lose a
+/// mean of 0.022s and still finish in the 99th percentile — on 586 of
+/// those days the weather-blind car IS the optimum. The reason is
+/// structural: `Weather.apply` multiplies every car's stats by the same
+/// factor, so taking 18% of everyone's grip does not change who has the
+/// most grip. Only Hot reaches a threshold (heat vs cooling) and so
+/// only Hot genuinely moves the answer — which is why it is the one
+/// line here that still names a system.
+///
+/// So these lines tell the player what the conditions ARE and leave the
+/// decision where the decision actually is: the circuit. Do not put the
+/// advice back without changing the simulation first — see
+/// `apex-design-evaluation-2026-09-16`.
+enum WeatherCopy {
+
+    static func symbol(_ w: Weather) -> String {
         switch w {
         case .sunny: return "sun.max"
         case .hot: return "thermometer.sun"
@@ -86,13 +116,14 @@ struct CircuitContextHeader: View {
         }
     }
 
-    private func weatherEffect(_ w: Weather) -> String {
+    /// Percentages are read straight off `Weather.statModifiersBP`.
+    static func effect(_ w: Weather) -> String {
         switch w {
-        case .sunny: return "Clean conditions — pure setup racing"
-        case .hot: return "Cooling and tires taxed on the final lap"
-        case .cold: return "Slow warm-up, less grip early"
-        case .rain: return "Grip and braking cut — stability pays"
-        case .windy: return "Stability and aero efficiency taxed"
+        case .sunny: return "No conditions penalty — the circuit decides"
+        case .hot: return "Heat +15%, tire life −8% — cooling decides lap 3"
+        case .cold: return "Grip −6%, slow warm-up, engines run cool"
+        case .rain: return "Grip −18%, braking −10% — everyone is slower"
+        case .windy: return "Stability −5%, aero efficiency −4%"
         }
     }
 }
