@@ -535,7 +535,11 @@ struct DailyHomeView: View {
     private var testSessionButtons: some View {
         VStack(spacing: 7) {
             practiceRow
-            Text("Practice — unlimited runs, nothing is recorded")
+            // "nothing is recorded" was wrong: the lab keeps a run
+            // history for the session and shows it. What is true — and
+            // what the player actually needs to know — is that none of
+            // it touches today's result.
+            Text("Practice — unlimited runs, doesn't affect your Daily")
                 .font(Theme.Font.body(10.5, weight: .regular))
                 .foregroundStyle(Theme.Color.faint)
         }

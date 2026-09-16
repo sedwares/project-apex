@@ -187,9 +187,17 @@ final class TestSessionViewModel {
     /// circuit and no budget and so can only describe the symptom —
     /// hence hedges like "if this circuit lets you" and "paid for
     /// elsewhere". Everything the advisor needs is right here.
+    /// Cached for the same reason the Daily's is — see DailyViewModel.
+    /// This one also has to key on the CONDITIONS, because the lab can
+    /// reroll them under an unchanged result.
+    @ObservationIgnored private var feedbackCache: (key: String, value: EngineerFeedback)?
+
     var feedback: EngineerFeedback? {
         guard let lastResult else { return nil }
-        return FeedbackEngine.generate(
+        let key = "\(lastResult.resultHash)|\(circuit.id)|\(conditions.weather.rawValue)"
+            + "|\(conditions.budget)|\(analysis == nil ? "pending" : "solved")"
+        if let cached = feedbackCache, cached.key == key { return cached.value }
+        let generated = FeedbackEngine.generate(
             result: lastResult,
             challenge: challengeAdapter,
             // Was nil, which sent the whole practice mode down the
@@ -208,6 +216,8 @@ final class TestSessionViewModel {
             // Chief Engineer voice.
             optimalSectorTotalsMillis: analysis?.optimalSectorTotalsMillis
         )
+        feedbackCache = (key, generated)
+        return generated
     }
 
     // MARK: - Exhaustive analysis (the real baseline)

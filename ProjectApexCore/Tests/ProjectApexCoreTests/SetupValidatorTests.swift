@@ -22,12 +22,12 @@ final class SetupValidatorTests: XCTestCase {
         ])
     }
 
-    // Reference Setup B: all-premium, cost 121 — deliberately over budget.
+    // Reference Setup B: all-premium, cost 118 — deliberately over budget.
     private var setupB: PlayerSetup {
         PlayerSetup(challengeId: "apex-test-001", selectedOptions: [
             .engineMode: .enginePower,          // 25
             .tires: .tiresSoft,                 // 21
-            .aerodynamics: .aeroLowDrag,        // 16
+            .aerodynamics: .aeroLowDrag,        // 13 (pass 6 reprice, was 16)
             .suspension: .suspensionStiff,      // 15
             .gearRatio: .gearLong,              // 14
             .cooling: .coolingLight,            // 6
@@ -43,9 +43,9 @@ final class SetupValidatorTests: XCTestCase {
     }
 
     func testOverBudgetSetupIsRejectedWithExactError() {
-        XCTAssertEqual(setupB.totalCost, 121)
+        XCTAssertEqual(setupB.totalCost, 118)
         let errors = SetupValidator.validate(setupB, budget: 100)
-        XCTAssertEqual(errors, [.overBudget(totalCost: 121, budget: 100)])
+        XCTAssertEqual(errors, [.overBudget(totalCost: 118, budget: 100)])
     }
 
     func testMissingCategoryIsReported() {

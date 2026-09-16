@@ -7,6 +7,18 @@
 //  a test fails loudly — that is the point. After deliberate balance
 //  tuning, update the pinned values in the same commit as the tuning.
 //
+//  ── THAT INSTRUCTION WAS NOT FOLLOWED, AND NOBODY NOTICED ──────────
+//  Pass 6 (sim-1.1.0, 2026-08-18) gave every middle option a downside
+//  and repriced aeroLowDrag and engineEfficient. It updated the header
+//  of OptionLibrary and left these pins describing the world before it.
+//  The suite has been red ever since — through three launch-readiness
+//  reviews, because there is no CI and the reviews never ran it.
+//
+//  Every value below was re-derived from the shipping OptionLibrary and
+//  each change traces to a specific pass-6 edit, noted inline. The
+//  SHIPPING BEHAVIOUR WAS ALWAYS CORRECT; only these expectations were
+//  stale. Corrected 2026-09-16.
+//
 
 import XCTest
 @testable import ProjectApexCore
@@ -27,14 +39,14 @@ final class VehicleBuilderTests: XCTestCase {
         ])
     }
 
-    // Reference Setup C: aggressive "glass cannon" build. Cost 107
+    // Reference Setup C: aggressive "glass cannon" build. Cost 106
     // (over the 100 reference budget after tuning pass 1 — used with
     // a 110 budget in legality checks; the sim itself doesn't gate).
     private var setupC: PlayerSetup {
         PlayerSetup(challengeId: "apex-test-001", selectedOptions: [
             .engineMode: .enginePower,           // 25
             .tires: .tiresSoft,                  // 21
-            .aerodynamics: .aeroLowDrag,         // 16
+            .aerodynamics: .aeroLowDrag,         // 13 (pass 6 reprice, was 16)
             .suspension: .suspensionSoft,        // 9
             .gearRatio: .gearLong,               // 14
             .cooling: .coolingLight,             // 6
@@ -51,34 +63,34 @@ final class VehicleBuilderTests: XCTestCase {
 
         XCTAssertEqual(stats.power, 1_040)
         XCTAssertEqual(stats.acceleration, 1_050)
-        XCTAssertEqual(stats.topSpeed, 1_060)
-        XCTAssertEqual(stats.grip, 1_055)
-        XCTAssertEqual(stats.braking, 1_040)
+        XCTAssertEqual(stats.topSpeed, 1_035)      // pass 6: aeroBalanced −25
+        XCTAssertEqual(stats.grip, 1_035)          // pass 6: gearBalanced −20
+        XCTAssertEqual(stats.braking, 1_020)       // pass 6: suspensionBalanced −20
         XCTAssertEqual(stats.stability, 1_045)
         XCTAssertEqual(stats.cooling, 1_050)
-        XCTAssertEqual(stats.reliability, 1_030)
-        XCTAssertEqual(stats.tireDurability, 1_030)
-        XCTAssertEqual(stats.weight, 1_000)
+        XCTAssertEqual(stats.reliability, 1_005)   // pass 6: engineBalanced −25
+        XCTAssertEqual(stats.tireDurability, 1_005) // pass 6: brakesBalanced −25
+        XCTAssertEqual(stats.weight, 1_065)        // pass 6: coolingStandard +30, reliabilityBalanced +35
         XCTAssertEqual(stats.aeroEfficiency, 1_040)
-        XCTAssertEqual(stats.heatGeneration, 1_030)
+        XCTAssertEqual(stats.heatGeneration, 1_055) // pass 6: tiresMedium +25
     }
 
     func testSetupC_ExactStats() {
-        XCTAssertEqual(setupC.totalCost, 109)
+        XCTAssertEqual(setupC.totalCost, 106)
         XCTAssertTrue(SetupValidator.isLegal(setupC, budget: 110))
         let stats = VehicleBuilder.build(from: setupC)
 
         XCTAssertEqual(stats.power, 1_130)
         XCTAssertEqual(stats.acceleration, 970)
-        XCTAssertEqual(stats.topSpeed, 1_285)
+        XCTAssertEqual(stats.topSpeed, 1_305)      // pass 6: aeroLowDrag +90 → +110
         XCTAssertEqual(stats.grip, 1_140)
         XCTAssertEqual(stats.braking, 1_040)
         XCTAssertEqual(stats.stability, 900)
         XCTAssertEqual(stats.cooling, 880)
         XCTAssertEqual(stats.reliability, 770)
-        XCTAssertEqual(stats.tireDurability, 820)
+        XCTAssertEqual(stats.tireDurability, 795)  // pass 6: brakesBalanced −25
         XCTAssertEqual(stats.weight, 880)
-        XCTAssertEqual(stats.aeroEfficiency, 1_070)
+        XCTAssertEqual(stats.aeroEfficiency, 1_085) // pass 6: aeroLowDrag +70 → +85
         XCTAssertEqual(stats.heatGeneration, 1_270)
         // heat deficit vs cooling 880: 390 → the gamble is real
     }
@@ -117,7 +129,7 @@ final class VehicleBuilderTests: XCTestCase {
         let stats = Weather.rain.apply(to: VehicleBuilder.build(from: setupC))
         XCTAssertEqual(stats.grip, 934)     // 1140 * 8200 / 10000 = 934 (truncated)
         XCTAssertEqual(stats.braking, 936)  // 1040 * 9000 / 10000
-        XCTAssertEqual(stats.topSpeed, 1_285) // untouched
+        XCTAssertEqual(stats.topSpeed, 1_305) // untouched by rain
     }
 
     // MARK: - Normative rounding rule

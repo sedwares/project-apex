@@ -372,13 +372,37 @@ final class DailyViewModel {
     /// Sector lines sharpen once `analysis` lands: before the solve
     /// finishes there's nothing to measure sectors against except the
     /// neutral car, which no real setup ever loses to.
+    /// ── WHY THIS IS CACHED ─────────────────────────────────────────
+    /// `FeedbackEngine.generate` calls `SetupAdvisor.bestAdvice`, which
+    /// is 128 simulations. SetupAdvisor's own comment says "cheap enough
+    /// for the main thread", and that is true of ONE call — but this is
+    /// a computed property read from `body` inside a scrolling List, so
+    /// it ran the advisor again on every single view invalidation, on
+    /// the main actor, while the same advice was ALSO being computed off
+    /// the main actor a few lines away.
+    ///
+    /// Found in external review 2026-09-16. A performance audit of this
+    /// file had earlier called the debrief clean because the properties
+    /// beside this one are populated by `.task`; this one is not.
+    ///
+    /// The cache key is the result hash plus whether the exhaustive
+    /// solve has landed, because those are the only two things the
+    /// feedback depends on. @ObservationIgnored is load-bearing: writing
+    /// to an observed property from inside a getter that runs during
+    /// `body` would invalidate the view that is currently evaluating.
+    @ObservationIgnored private var feedbackCache: (key: String, value: EngineerFeedback)?
+
     var feedback: EngineerFeedback? {
         guard let result else { return nil }
-        return FeedbackEngine.generate(
+        let key = "\(result.resultHash)|\(analysis == nil ? "pending" : "solved")"
+        if let cached = feedbackCache, cached.key == key { return cached.value }
+        let generated = FeedbackEngine.generate(
             result: result,
             challenge: challenge,
             optimalSectorTotalsMillis: analysis?.optimalSectorTotalsMillis
         )
+        feedbackCache = (key, generated)
+        return generated
     }
 
     /// Per-sector milliseconds lost to the optimal setup, once known.

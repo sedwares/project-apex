@@ -35,7 +35,10 @@ final class OptionLibraryTests: XCTestCase {
     // MARK: - Cost design invariants (Balance Sheet §2)
 
     func testCostBounds() {
-        XCTAssertEqual(OptionLibrary.minimumTotalCost, 64)
+        // 62, not 64: pass 6 repriced engineEfficient 7 → 5 cr. The
+        // OptionLibrary header has said "cheapest legal setup = 62 cr"
+        // since that change; this pin did not follow.
+        XCTAssertEqual(OptionLibrary.minimumTotalCost, 62)
         XCTAssertEqual(OptionLibrary.maximumTotalCost, 135)
     }
 
