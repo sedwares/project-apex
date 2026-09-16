@@ -185,6 +185,58 @@ final class DailyViewModelTests: XCTestCase {
         XCTAssertTrue(vm.experimentSelections.isEmpty)
     }
 
+    // MARK: - Upgrading from a build before the install marker
+
+    /// The highest-severity bug of the whole launch, caught in review
+    /// before it shipped: build 22 read an absent `apex.install.seen` as
+    /// "fresh install" and signed the player out. No previous build
+    /// wrote that key, so EVERY existing tester would have lost their
+    /// identity on update — new uid, orphaned leaderboard rows, and
+    /// records owned by an account they no longer were.
+    ///
+    /// Deleting an app takes UserDefaults with it and leaves the
+    /// keychain, so prior local data is the thing that tells the two
+    /// cases apart.
+    func testUpgradeIsNotMistakenForAFreshInstall() {
+        let suite = UserDefaults(suiteName: "apex.tests.install")!
+        defer { UserDefaults.standard.removePersistentDomain(forName: "apex.tests.install") }
+        for key in suite.dictionaryRepresentation().keys { suite.removeObject(forKey: key) }
+
+        // A clean container: nothing has ever run here.
+        XCTAssertFalse(
+            FirebaseBootstrap.isUpgradeFromPreMarkerBuild(defaults: suite),
+            "an empty container is a fresh install"
+        )
+
+        // Any one of these proves the app has run here before.
+        for key in ["apex.daily.2026-07-16", "apex.streak.current",
+                    "apex.onboarding.seen", "apex.analytics.firstOpenDayNumber",
+                    "apex.challengeCache.2026-07-16"] {
+            suite.set("x", forKey: key)
+            XCTAssertTrue(
+                FirebaseBootstrap.isUpgradeFromPreMarkerBuild(defaults: suite),
+                "\(key) means this install has run before"
+            )
+            suite.removeObject(forKey: key)
+        }
+
+        // The marker itself must not count, or the check answers its
+        // own question and every fresh install reads as an upgrade.
+        suite.set(true, forKey: FirebaseBootstrap.installMarker)
+        XCTAssertFalse(
+            FirebaseBootstrap.isUpgradeFromPreMarkerBuild(defaults: suite),
+            "the marker is not evidence of prior play"
+        )
+
+        // Somebody else's key is not ours.
+        suite.removeObject(forKey: FirebaseBootstrap.installMarker)
+        suite.set("x", forKey: "unrelated.setting")
+        XCTAssertFalse(
+            FirebaseBootstrap.isUpgradeFromPreMarkerBuild(defaults: suite),
+            "only this app's own keys count"
+        )
+    }
+
     // MARK: - Links
 
     /// AppLinks.privacyPolicy is force-unwrapped, and the same URL has

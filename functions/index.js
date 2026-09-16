@@ -100,7 +100,16 @@ async function drainDeletionRequest(uid, requestRef) {
     }
   }
 
-  await db.collection("players").doc(uid).delete().catch(() => {});
+  // NOT swallowed. This used to be `.catch(() => {})`, and the request
+  // document is deleted a few lines below — so one transient Firestore
+  // error left the player's profile stored forever with no pending work
+  // for either the retry or the sweeper to pick up. A deletion that
+  // silently keeps the profile is the exact failure this function
+  // exists to prevent.
+  //
+  // Letting it throw is safe: the drain is idempotent, retry is on, and
+  // the request survives to be re-run.
+  await db.collection("players").doc(uid).delete();
 
   // The auth user last: if anything above threw, the request document
   // survives and a retry can finish the job. Deleting the user first

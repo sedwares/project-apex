@@ -255,20 +255,37 @@ final class TestSessionViewModel {
     }
 
     func loadAnalysis() async {
-        guard let lastResult, analysis == nil, !isAnalysisLoading else { return }
+        guard lastResult != nil, analysis == nil, !isAnalysisLoading else { return }
         isAnalysisLoading = true
         defer { isAnalysisLoading = false }
-        let generation = solveGeneration
-        let challenge = challengeAdapter
-        let playerAverage = lastResult.averageLapTimeMillis
-        let solved = await Task.detached(priority: .userInitiated) {
-            DayAnalyzer.analyze(
-                challenge: challenge,
-                playerAverageLapMillis: playerAverage
-            )
-        }.value
-        guard generation == solveGeneration else { return }
-        storedAnalysis = solved
+        // ── A DISCARDED ANSWER MUST BE REPLACED, NOT JUST DROPPED ──
+        // The generation token stopped a stale solve overwriting a newer
+        // run, but it introduced the opposite failure: the new request
+        // returns early while this one is still loading, then this one
+        // finishes, sees the mismatch and throws its answer away — and
+        // nothing is left to ask the question again. Stale answers
+        // became missing answers.
+        //
+        // Looping here means whoever is already inside carries the new
+        // question rather than abandoning it. Bounded, because the
+        // generation only moves on a user action and spinning the solver
+        // forever would be worse than a missing read.
+        for _ in 0..<4 {
+            guard let current = lastResult, storedAnalysis == nil else { return }
+            let generation = solveGeneration
+            let challenge = challengeAdapter
+            let playerAverage = current.averageLapTimeMillis
+            let solved = await Task.detached(priority: .userInitiated) {
+                DayAnalyzer.analyze(
+                    challenge: challenge,
+                    playerAverageLapMillis: playerAverage
+                )
+            }.value
+            if generation == solveGeneration {
+                storedAnalysis = solved
+                return
+            }
+        }
     }
 
     /// Sector deltas against the optimal setup, per lap — the same
@@ -288,19 +305,25 @@ final class TestSessionViewModel {
 
     /// ~128 simulations. Off the main actor so the run bar stays live.
     func loadAdvice() async {
-        guard let lastResult, advice == nil, !isAdviceLoading else { return }
+        guard lastResult != nil, advice == nil, !isAdviceLoading else { return }
         isAdviceLoading = true
         defer { isAdviceLoading = false }
-        let generation = solveGeneration
-        let challenge = challengeAdapter
-        let leading = FeedbackEngine.leadingEvent(in: lastResult)
-        let solved = await Task.detached(priority: .userInitiated) {
-            SetupAdvisor.bestAdvice(
-                for: lastResult.setup, challenge: challenge, leadingEvent: leading
-            )
-        }.value
-        guard generation == solveGeneration else { return }
-        storedAdvice = solved
+        // Same loop, same reason as loadAnalysis.
+        for _ in 0..<4 {
+            guard let current = lastResult, storedAdvice == nil else { return }
+            let generation = solveGeneration
+            let challenge = challengeAdapter
+            let leading = FeedbackEngine.leadingEvent(in: current)
+            let solved = await Task.detached(priority: .userInitiated) {
+                SetupAdvisor.bestAdvice(
+                    for: current.setup, challenge: challenge, leadingEvent: leading
+                )
+            }.value
+            if generation == solveGeneration {
+                storedAdvice = solved
+                return
+            }
+        }
     }
 
     /// The lab's whole point: take the engineer's suggestion and run it
@@ -368,11 +391,29 @@ final class TestSessionViewModel {
             let result = SimulationEngine.simulate(
                 setup: setup, circuit: circuit, weather: conditions.weather
             )
+            // ── ONLY DISCARD WHEN THE CAR ACTUALLY CHANGED ─────────
+            // The view's task is keyed on the result hash, deliberately,
+            // so that re-running an identical setup does not repeat a
+            // few-thousand-simulation search. But this cleared the
+            // advice and the analysis unconditionally — so a repeat run
+            // wiped the Engineer's read and then the task did NOT
+            // re-fire, because the hash was the same. The read simply
+            // vanished until the player changed something.
+            //
+            // The intent was right and the implementation contradicted
+            // it. An identical hash under unchanged conditions means an
+            // identical car, so the solve is still exactly correct:
+            // keep it, and the task's own de-duplication does the rest.
+            // Rerolling the circuit clears everything separately.
+            let carChanged = result.resultHash != storedResult?.resultHash
+
             storedResult = result
             runSelections = selections
-            invalidateSolves()   // any solve still in flight is for the previous run
             replayResult = result
-            storedAdvice = nil   // recomputed for the new run by the view's task
+            if carChanged {
+                invalidateSolves()   // any solve in flight is for the previous car
+                storedAdvice = nil   // recomputed by the view's task
+            }
 
             // Every run is recorded, repeats included.
             //
@@ -389,7 +430,7 @@ final class TestSessionViewModel {
             // OPTIMUM is unchanged too — but DayAnalyzer folds the
             // player's own average into beatPercent and the gap, so it
             // has to be recomputed.
-            storedAnalysis = nil
+            if carChanged { storedAnalysis = nil }
 
             runCount += 1
             runHistory.insert(SessionRun(number: runCount, result: result), at: 0)
