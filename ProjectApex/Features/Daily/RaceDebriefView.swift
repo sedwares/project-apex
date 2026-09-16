@@ -191,6 +191,21 @@ struct RaceDebriefView: View {
                 }
             } header: { Text("Global standing").apexLabel(Theme.Color.muted) }
                 .listRowBackground(Theme.Color.panel)
+        case .belongsToPreviousAccount:
+            // Deliberately NOT .failed: nothing failed, and a retry
+            // button here would submit the duplicate the guard exists
+            // to prevent. No action, because there is no correct one.
+            Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Set by a previous engineer")
+                        .font(Theme.Font.body(13))
+                        .foregroundStyle(Theme.Color.cream)
+                    Text("This result was submitted from this device by an account that no longer exists, so it stays on the board under that callsign. Tomorrow's assignment will rank normally.")
+                        .font(Theme.Font.body(11.5, weight: .regular))
+                        .foregroundStyle(Theme.Color.muted)
+                }
+            } header: { Text("Global standing").apexLabel(Theme.Color.muted) }
+                .listRowBackground(Theme.Color.panel)
         case .failed(let reason):
             Section {
                 VStack(alignment: .leading, spacing: 6) {

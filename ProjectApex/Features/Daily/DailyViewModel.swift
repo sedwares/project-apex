@@ -39,6 +39,10 @@ final class DailyViewModel {
         /// need completely different fixes — the reason was caught and
         /// discarded without even a log line.
         case failed(reason: String)
+        /// Today's record was submitted by an account this device no
+        /// longer has. There is a row on the board, it is just not
+        /// ours to claim — and re-submitting would add a second one.
+        case belongsToPreviousAccount
     }
 
     // MARK: - State
@@ -268,7 +272,8 @@ final class DailyViewModel {
             selections: selections,
             result: simulationResult,
             submittedAt: Date(),
-            simulationVersion: ResultHasher.simulationVersion
+            simulationVersion: ResultHasher.simulationVersion,
+            submittedByUID: uid
         )
         store.saveRecord(record)
         if let day = ChallengeSeed.dayNumber(fromDateKey: challenge.dateKey) {
@@ -302,6 +307,21 @@ final class DailyViewModel {
               let record = store.loadRecord(forDateKey: challenge.dateKey)
         else { return }
         if case .loading = standingState { return }
+
+        // The record may predate this account. See DailyRecord
+        // .submittedByUID: the uid lives in the keychain and the record
+        // in UserDefaults, so a server-side account deletion or a
+        // restored backup can leave today's result on the device under
+        // an identity that is gone. Submitting it again would write a
+        // SECOND entry for the same lap on the same day.
+        //
+        // A record with no owner is legacy, not foreign — those predate
+        // the field and are still ours.
+        if let owner = record.submittedByUID, owner != uid {
+            DebugLog.log("standing skipped: record belongs to \(owner), signed in as \(uid)")
+            standingState = .belongsToPreviousAccount
+            return
+        }
 
         // Captured BEFORE the .loading assignment below — checking it
         // afterwards is always false, which silently made the force path

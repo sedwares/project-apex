@@ -520,6 +520,95 @@ final class DailyViewModelTests: XCTestCase {
         XCTAssertEqual(store.currentStreak(asOfDayNumber: 14), 1, "reset, not resumed")
     }
 
+    // MARK: - A record that belongs to a previous account
+
+    /// Counts submissions, so a test can prove one did NOT happen.
+    @MainActor
+    private final class SpyLeaderboard: LeaderboardServicing {
+        var submitCount = 0
+        var standingCount = 0
+        func submitAndStand(record: DailyRecord, uid: String,
+                            displayName: String) async throws -> LeaderboardStanding {
+            submitCount += 1
+            return LeaderboardStanding(rank: 1, totalEntries: 1, tieCount: 1)
+        }
+        func standing(dateKey: String, uid: String) async throws -> LeaderboardStanding {
+            standingCount += 1
+            return LeaderboardStanding(rank: 1, totalEntries: 1, tieCount: 1)
+        }
+        func topEntries(dateKey: String, limit: Int,
+                        uid: String) async throws -> [LeaderboardRow] { [] }
+    }
+
+    private func viewModelWithLeaderboard(
+        store: DailySaveStore, leaderboard: LeaderboardServicing, uid: String
+    ) -> DailyViewModel {
+        let challenge = ChallengeGenerator.generate(dayNumber: 1, dateKey: "test-day-1")
+        return DailyViewModel(
+            challenge: challenge, store: store, leaderboard: leaderboard,
+            uid: uid, displayName: "ENG-000000"
+        )
+    }
+
+    /// The reported scenario: the account is deleted server-side, the
+    /// next launch signs in as somebody new, and today's record is still
+    /// on the device. Re-submitting it would put one person on the same
+    /// day's board twice.
+    func testStandingIsNotResubmittedUnderANewAccount() async {
+        let store = InMemorySaveStore()
+        let spy = SpyLeaderboard()
+
+        let first = viewModelWithLeaderboard(store: store, leaderboard: spy, uid: "uid-A")
+        selectAllBalanced(first)
+        first.submit()
+        XCTAssertEqual(store.records["test-day-1"]?.submittedByUID, "uid-A",
+                       "submit must stamp the owner")
+
+        // Same device, same record, different account.
+        let second = viewModelWithLeaderboard(store: store, leaderboard: spy, uid: "uid-B")
+        XCTAssertEqual(second.phase, .submitted, "the result is still this device's")
+        let before = spy.submitCount
+        await second.refreshStanding()
+
+        XCTAssertEqual(spy.submitCount, before, "must not write a second entry")
+        XCTAssertEqual(second.standingState, .belongsToPreviousAccount)
+    }
+
+    /// The same account still ranks normally — the guard must not break
+    /// the ordinary path.
+    func testStandingStillSubmitsForTheSameAccount() async {
+        let store = InMemorySaveStore()
+        let spy = SpyLeaderboard()
+        let vm = viewModelWithLeaderboard(store: store, leaderboard: spy, uid: "uid-A")
+        selectAllBalanced(vm)
+        vm.submit()
+
+        let again = viewModelWithLeaderboard(store: store, leaderboard: spy, uid: "uid-A")
+        await again.refreshStanding()
+        XCTAssertGreaterThan(spy.submitCount, 0, "the owner must still be able to rank")
+    }
+
+    /// Records written before build 24 carry no owner. They are legacy,
+    /// not foreign, and must keep ranking.
+    func testLegacyRecordWithoutAnOwnerStillRanks() async {
+        let store = InMemorySaveStore()
+        let spy = SpyLeaderboard()
+        let vm = viewModelWithLeaderboard(store: store, leaderboard: spy, uid: "uid-A")
+        selectAllBalanced(vm)
+        vm.submit()
+
+        let r = store.records["test-day-1"]!
+        store.records["test-day-1"] = DailyRecord(
+            dateKey: r.dateKey, selections: r.selections, result: r.result,
+            submittedAt: r.submittedAt, simulationVersion: r.simulationVersion,
+            submittedByUID: nil
+        )
+
+        let restored = viewModelWithLeaderboard(store: store, leaderboard: spy, uid: "uid-B")
+        await restored.refreshStanding()
+        XCTAssertGreaterThan(spy.submitCount, 0, "an unowned record is ours by default")
+    }
+
     func testRestoreIgnoredOnSimulationVersionMismatch() {
         let store = InMemorySaveStore()
         let vm = makeViewModel(budget: 100, store: store)

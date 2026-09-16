@@ -22,6 +22,47 @@ struct DailyRecord: Codable, Equatable {
     /// R6: optional so pre-Phase-5 records decode as legacy-valid.
     /// nil = written before versioning; treated as current.
     let simulationVersion: String?
+
+    /// The account that submitted this, so the app can tell whether the
+    /// row on the leaderboard is still ours.
+    ///
+    /// ── WHY A RECORD NEEDS TO KNOW WHOSE IT IS ─────────────────
+    /// Records are keyed by date alone, and `restoreIfSubmitted` asks
+    /// only "is there a record for today". The uid is separate state,
+    /// living in the keychain rather than UserDefaults — and the two
+    /// can come apart:
+    ///
+    ///   · the auth user is deleted server-side, so the next launch
+    ///     signs in as somebody new while today's record survives;
+    ///   · an iPhone backup is restored onto another device, which
+    ///     carries UserDefaults across but not necessarily the keychain.
+    ///
+    /// Either way the app restored the old result under a NEW identity,
+    /// showed "View debrief", and `refreshStanding` then re-submitted
+    /// that stored record via `submitAndStand` under the new uid —
+    /// putting one person on the same day's board twice, with the same
+    /// lap time and two different callsigns. It is how three identical
+    /// times reached the live board during testing.
+    ///
+    /// Optional, so every record written before build 24 decodes and is
+    /// treated as legacy: unknown owner, no guard. New records carry it.
+    let submittedByUID: String?
+
+    init(
+        dateKey: String,
+        selections: [EngineeringCategoryID: EngineeringOptionID],
+        result: SimulationResult,
+        submittedAt: Date,
+        simulationVersion: String?,
+        submittedByUID: String? = nil
+    ) {
+        self.dateKey = dateKey
+        self.selections = selections
+        self.result = result
+        self.submittedAt = submittedAt
+        self.simulationVersion = simulationVersion
+        self.submittedByUID = submittedByUID
+    }
 }
 
 @MainActor
