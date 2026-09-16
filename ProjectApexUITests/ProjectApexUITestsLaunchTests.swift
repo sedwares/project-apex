@@ -2,7 +2,12 @@
 //  ProjectApexUITestsLaunchTests.swift
 //  ProjectApexUITests
 //
-//  Created by sedar on 7/9/26.
+//  Kept as the screenshot harness, not as a test of anything: it
+//  launches under each target application UI configuration and attaches
+//  what it sees. The attachment is the point — a launch that renders
+//  the wrong thing is visible in the report even when nothing asserts.
+//
+//  The real launch assertion lives in ProjectApexUITests.
 //
 
 import XCTest
@@ -22,10 +27,9 @@ final class ProjectApexUITestsLaunchTests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
+        // Give the first screen a moment to draw, otherwise the
+        // attachment is a black window and tells you nothing.
+        _ = app.staticTexts.firstMatch.waitForExistence(timeout: 10)
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Launch Screen"
