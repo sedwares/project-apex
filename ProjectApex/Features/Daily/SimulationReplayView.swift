@@ -61,7 +61,7 @@ struct SimulationReplayView: View {
     @State private var finished = false
 
     private let secondsPerLap = 3.1
-    private let sceneHeight: CGFloat = 290
+    private let sceneHeight: CGFloat = CircuitLoop.replayBandHeight
 
     private var totalLaps: Int { max(result.lapResults.count, 1) }
 

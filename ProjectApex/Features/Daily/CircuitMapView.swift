@@ -25,7 +25,41 @@ import ProjectApexCore
 struct CircuitMapView: View {
     let circuit: Circuit
     var trackWidth: CGFloat = 11
-    var inset: CGFloat = 26
+    var inset: CGFloat = CircuitMapView.matchedInset
+
+    // ── Why these two numbers ──────────────────────────────────────
+    // A loop's SHAPE is fixed entirely by the ratio of its two radii,
+    // and CircuitLoop derives those independently from the box it is
+    // handed:
+    //
+    //     rx = size.width  / 2 - inset
+    //     ry = size.height / 2 - inset
+    //
+    // So the same circuit in a box of different proportions is drawn
+    // with different proportions. The brief used to ask for a 180pt
+    // band while the replay uses 290pt, which drew the track about
+    // 1.5x wider for its height than the one you then raced — the same
+    // corners, visibly squashed.
+    //
+    // The card gives this view the screen width less 22pt a side
+    // (Theme.Metric.gutter + the card's own 6). A UNIFORMLY scaled
+    // copy of the replay's box therefore reproduces the replay's
+    // radius ratio, and `boxScale` is that scale. It runs from 0.86 on
+    // the narrowest shipping iPhone to 0.90 on the widest — close
+    // enough to a constant to spare this view having to know how wide
+    // the screen is. Residual error is under 1.5% on every current
+    // size and under 5% on the oldest.
+
+    /// Map box ÷ replay box. See above.
+    static let boxScale: CGFloat = 0.89
+
+    /// Give the view this height and the circuit is drawn in the same
+    /// proportions the replay will draw it in.
+    static let matchedHeight: CGFloat = CircuitLoop.replayBandHeight * boxScale
+
+    /// The replay's inset, scaled by the same factor — a scaled box
+    /// with an unscaled inset is not a scaled box.
+    static let matchedInset: CGFloat = CircuitLoop.defaultInset * boxScale
 
     var body: some View {
         GeometryReader { proxy in

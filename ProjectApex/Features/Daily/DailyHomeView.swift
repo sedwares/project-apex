@@ -282,7 +282,7 @@ struct DailyHomeView: View {
             .padding(.top, 12)
 
             CircuitMapView(circuit: viewModel.challenge.circuit)
-                .frame(height: 180)
+                .frame(height: CircuitMapView.matchedHeight)
                 .padding(.horizontal, 6)
                 .padding(.bottom, 8)
         }

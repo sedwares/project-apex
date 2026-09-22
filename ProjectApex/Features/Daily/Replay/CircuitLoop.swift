@@ -52,6 +52,18 @@ struct CircuitLoop {
         case down    // SwiftUI Path
     }
 
+    /// The margin every drawing of a circuit leaves between the loop
+    /// and the edge of its box. Named rather than defaulted in place
+    /// so a second drawing of the same circuit can SCALE it instead of
+    /// guessing at it.
+    static let defaultInset: CGFloat = 46
+
+    /// The height of the replay's track band. The replay hands this
+    /// loop a box of the full screen width by this height, so that box
+    /// is the shape every other drawing of the same circuit has to
+    /// match — see CircuitMapView.
+    static let replayBandHeight: CGFloat = 290
+
     let size: CGSize
     let inset: CGFloat
     let axis: VerticalAxis
@@ -77,7 +89,7 @@ struct CircuitLoop {
     init(size: CGSize,
          sections: [TrackSectionType],
          archetype: CircuitArchetype = .balanced,
-         inset: CGFloat = 46,
+         inset: CGFloat = CircuitLoop.defaultInset,
          axis: VerticalAxis = .up) {
         self.size = size
         self.inset = inset
