@@ -430,7 +430,10 @@ struct RaceDebriefView: View {
     /// structural space from 3^8 to 2×3^7 — so quoting 6,561 on a
     /// regulated day overstates what the player was actually up against.
     private func theoreticalBestLabel(legalCount: Int) -> String {
-        "Theoretical best (all \(legalCount) legal setups)"
+        // Same wording as the Lab's row, and grouped ("2,666") — a plain
+        // String interpolation printed "2666" where the Lab's Text
+        // printed "3,453", and the long form wrapped onto two lines.
+        "Optimal (\(legalCount.formatted()) legal)"
     }
 
     private func optimalRow(category: EngineeringCategoryID, optionID: EngineeringOptionID) -> some View {
