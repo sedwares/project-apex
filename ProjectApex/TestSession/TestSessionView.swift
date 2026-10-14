@@ -138,8 +138,31 @@ struct TestSessionView: View {
                         }
         }
         .listStyle(.insetGrouped)
+        // The default inset-grouped gaps (above the first section and
+        // between sections) cost ~150pt on Quick Race — enough to push
+        // the option cards under the Run bar, so the car and the card you
+        // tap were no longer on one screen. Compact spacing, and New race
+        // lives in the toolbar instead of a section of its own.
+        .listSectionSpacing(.compact)
+        .contentMargins(.top, 8, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(Theme.Color.ink)
+        .toolbar {
+            if viewModel.mode == .quickRace {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        viewModel.newQuickRace()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "dice")
+                            Text("New race")
+                        }
+                        .apexLabel(Theme.Color.signal)
+                    }
+                    .accessibilityLabel("New race")
+                }
+            }
+        }
         .navigationTitle(viewModel.mode == .quickRace ? "Quick Race" : "Test Lab")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.Color.ink, for: .navigationBar)
@@ -187,30 +210,13 @@ struct TestSessionView: View {
 
     // MARK: - Conditions
 
+    /// Quick Race has no section here any more: its only control, New
+    /// race, is in the toolbar (see the List modifiers).
     @ViewBuilder
     private var conditionsSection: some View {
-        if viewModel.mode == .quickRace {
-            quickRaceConditionsSection
-        } else {
+        if viewModel.mode != .quickRace {
             customConditionsSection
         }
-    }
-
-    /// Quick Race: the conditions are the brief — read them, race them.
-    private var quickRaceConditionsSection: some View {
-        Section {
-            Button {
-                viewModel.newQuickRace()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "dice")
-                    Text("New race")
-                }
-                .apexLabel(Theme.Color.signal)
-            }
-        }
-        .listRowBackground(Theme.Color.panel)
-        .listRowSeparatorTint(Theme.Color.rule)
     }
 
     private var customConditionsSection: some View {
