@@ -29,6 +29,28 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("apex.onboarding.seen") private var onboardingSeen = false
 
+    @AppStorage(NotificationService.reminderMinutesKey)
+    private var reminderMinutes = NotificationService.defaultReminderMinutes
+
+    /// Minutes-after-midnight as a Date for the picker.
+    private var reminderTime: Binding<Date> {
+        Binding(
+            get: {
+                Calendar.current.date(
+                    bySettingHour: reminderMinutes / 60, minute: reminderMinutes % 60,
+                    second: 0, of: Date()
+                ) ?? Date()
+            },
+            set: { date in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+                reminderMinutes = (parts.hour ?? 9) * 60 + (parts.minute ?? 0)
+                let played = UserDefaultsSaveStore()
+                    .loadRecord(forDateKey: DailyCoordinator.todayDateKey()) != nil
+                Task { await NotificationService.shared.refreshSchedule(hasPlayedToday: played) }
+            }
+        )
+    }
+
     @State private var confirmingDelete = false
     @State private var isDeleting = false
     @State private var deletionError: String?
@@ -53,7 +75,16 @@ struct SettingsView: View {
             .listRowSeparatorTint(Theme.Color.rule)
 
             Section {
-                Text("Project Apex asks permission for a daily reminder once you've completed three assignments — never before. You can change it any time in iOS Settings.")
+                // v1.3: the reminder time is the player's. Changing it
+                // rebuilds the week of one-shot reminders at once.
+                DatePicker(
+                    selection: reminderTime,
+                    displayedComponents: .hourAndMinute
+                ) {
+                    Text("Daily reminder").apexLabel()
+                }
+                .tint(Theme.Color.signal)
+                Text("Project Apex offers a daily reminder after your first race — never before, and only if you say yes. Turn it off any time in iOS Settings.")
                     .font(Theme.Font.body(11.5, weight: .regular))
                     .foregroundStyle(Theme.Color.muted)
                 Button {

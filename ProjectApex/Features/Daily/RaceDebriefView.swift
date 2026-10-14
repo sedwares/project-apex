@@ -41,11 +41,17 @@ struct RaceDebriefView: View {
     @AppStorage("apex.bay.car3D") private var car3D = true
     @Bindable var viewModel: DailyViewModel
     @State private var revealOptimal = false
+    /// The reminder card (v1.3) — our own ask before iOS's one-shot prompt.
+    @State private var offerReminder = false
+    @AppStorage(NotificationService.reminderMinutesKey)
+    private var reminderMinutes = NotificationService.defaultReminderMinutes
 
     var body: some View {
         List {
             if let result = viewModel.result {
                 headerSection(result)
+                medalSection(result)
+                if offerReminder { reminderSection }
                 lockedSetupSection
                 standingSection
                 lapsSection(result)
@@ -64,24 +70,19 @@ struct RaceDebriefView: View {
         .toolbarBackground(Theme.Color.ink, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
-            if let text = viewModel.shareText {
+            if let card = viewModel.shareCard, let text = viewModel.shareText {
                 ToolbarItem(placement: .topBarTrailing) {
-                    ShareLink(item: text) {
+                    ShareResultButton(card: card, text: text) {
                         Image(systemName: "square.and.arrow.up")
                     }
-                    // ShareLink has no action hook, and a simultaneous
-                    // gesture is the only way to observe the tap without
-                    // rebuilding the sheet by hand. Counts intent, not
-                    // completion — nobody can see whether a share landed.
-                    .simultaneousGesture(TapGesture().onEnded {
-                        Analytics.shareTapped(
-                            dayNumber: ChallengeSeed.dayNumber(
-                                fromDateKey: viewModel.challenge.dateKey
-                            )
-                        )
-                    })
+                    .accessibilityLabel("Share result")
                 }
             }
+        }
+        .task {
+            offerReminder = await NotificationService.shared.shouldOfferReminder(
+                todayDayNumber: ChallengeSeed.dayNumber(fromDateKey: DailyCoordinator.todayDateKey())
+            )
         }
         .task { await viewModel.loadAnalysis() }
         .task { await viewModel.refreshStanding() }
@@ -186,6 +187,157 @@ struct RaceDebriefView: View {
             .listRowBackground(Theme.Color.panel)
             .listRowSeparator(.hidden)
         }
+    }
+
+    // MARK: - Medal (v1.3)
+
+    /// The medal, the ladder it sits on, and the share button — the
+    /// result in the form worth sending. Targets are lap times from the
+    /// solved field, so they mean the same whoever else played today.
+    @ViewBuilder
+    private func medalSection(_ result: SimulationResult) -> some View {
+        Section {
+            if let targets = viewModel.targets {
+                let medal = targets.medal(forAverageLapMillis: result.averageLapTimeMillis)
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .center) {
+                        MedalBadge(medal: medal, size: 18)
+                        Spacer()
+                        if let card = viewModel.shareCard, let text = viewModel.shareText {
+                            ShareResultButton(card: card, text: text) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "square.and.arrow.up")
+                                    Text("Share")
+                                }
+                                .font(Theme.Font.label(11))
+                                .tracking(1.2)
+                                .textCase(.uppercase)
+                                .foregroundStyle(Theme.Color.cream)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Theme.Color.signal)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    VStack(spacing: 6) {
+                        ForEach(Array(Medal.allCases.reversed()), id: \.self) { tier in
+                            let earned = medal.map { $0 >= tier } ?? false
+                            HStack {
+                                Circle().fill(tier.color.opacity(earned ? 1 : 0.35))
+                                    .frame(width: 8, height: 8)
+                                Text(tier.label)
+                                    .font(Theme.Font.body(12.5, weight: earned ? .semibold : .regular))
+                                    .foregroundStyle(earned ? Theme.Color.cream : Theme.Color.muted)
+                                Spacer()
+                                Text("≤ " + FixedPoint.formatLapTime(millis: targets.millis(for: tier)))
+                                    .apexData(12.5, weight: earned ? .bold : .regular,
+                                              color: earned ? Theme.Color.cream : Theme.Color.muted)
+                            }
+                        }
+                    }
+
+                    if let next = targets.nextTarget(forAverageLapMillis: result.averageLapTimeMillis) {
+                        Text("\(next.medal.label) was \(secondsText(next.gapMillis)) an average lap away.")
+                            .font(Theme.Font.body(11.5, weight: .regular))
+                            .foregroundStyle(Theme.Color.muted)
+                    } else {
+                        Text("Top 1% of every legal setup today.")
+                            .font(Theme.Font.body(11.5, weight: .regular))
+                            .foregroundStyle(Theme.Color.muted)
+                    }
+                }
+                .padding(.vertical, 6)
+            } else {
+                HStack(spacing: 10) {
+                    ProgressView().tint(Theme.Color.signal)
+                    Text("Scoring every legal setup").apexLabel(Theme.Color.muted)
+                }
+            }
+        } header: {
+            Text("Today's medal").apexLabel(Theme.Color.muted)
+        }
+        .listRowBackground(Theme.Color.panel)
+    }
+
+    // MARK: - Reminder (v1.3)
+
+    /// Our own ask, first. Saying no here costs nothing; iOS gives us
+    /// exactly one system prompt, so it is only spent on a yes.
+    private var reminderSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Tomorrow's circuit drops at midnight UTC")
+                    .font(Theme.Font.body(13.5))
+                    .foregroundStyle(Theme.Color.cream)
+                Text("Want a nudge? One reminder a day, skipped on days you've already raced.")
+                    .font(Theme.Font.body(11.5, weight: .regular))
+                    .foregroundStyle(Theme.Color.muted)
+                DatePicker(selection: reminderTime, displayedComponents: .hourAndMinute) {
+                    Text("Remind me at").apexLabel()
+                }
+                .tint(Theme.Color.signal)
+                HStack(spacing: 10) {
+                    Button {
+                        Task {
+                            let granted = await NotificationService.shared.requestAuthorization()
+                            if granted {
+                                await NotificationService.shared.refreshSchedule(hasPlayedToday: true)
+                            }
+                            withAnimation { offerReminder = false }
+                        }
+                    } label: {
+                        Text("Remind me")
+                            .font(Theme.Font.label(11))
+                            .tracking(1.2)
+                            .textCase(.uppercase)
+                            .foregroundStyle(Theme.Color.cream)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Theme.Color.signal)
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        NotificationService.shared.dismissReminderOffer(
+                            todayDayNumber: ChallengeSeed.dayNumber(
+                                fromDateKey: DailyCoordinator.todayDateKey()
+                            )
+                        )
+                        withAnimation { offerReminder = false }
+                    } label: {
+                        Text("Not now")
+                            .font(Theme.Font.label(11))
+                            .tracking(1.2)
+                            .textCase(.uppercase)
+                            .foregroundStyle(Theme.Color.muted)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .overlay(Rectangle().stroke(Theme.Color.rule, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 6)
+        } header: {
+            Text("Daily reminder").apexLabel(Theme.Color.muted)
+        }
+        .listRowBackground(Theme.Color.panel)
+    }
+
+    private var reminderTime: Binding<Date> {
+        Binding(
+            get: {
+                Calendar.current.date(
+                    bySettingHour: reminderMinutes / 60, minute: reminderMinutes % 60,
+                    second: 0, of: Date()
+                ) ?? Date()
+            },
+            set: { date in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+                reminderMinutes = (parts.hour ?? 9) * 60 + (parts.minute ?? 0)
+            }
+        )
     }
 
     // MARK: - Global standing

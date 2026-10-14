@@ -33,10 +33,25 @@ final class NotificationService {
 
     static let shared = NotificationService()
 
-    /// Local hour to remind at. The challenge is available all day, so
-    /// this is a civil-time choice, not a technical one — waking someone
-    /// at the UTC rollover would mean 1am for a third of the world.
-    static let reminderHour = 9
+    /// Default local time to remind at. The challenge is available all
+    /// day, so this is a civil-time choice, not a technical one — waking
+    /// someone at the UTC rollover would mean 1am for a third of the
+    /// world. v1.3: the player can move it (Settings, or the debrief's
+    /// reminder card); this is only where it starts.
+    static let defaultReminderMinutes = 9 * 60
+
+    /// Minutes after local midnight. Shared with Settings via
+    /// @AppStorage on the same key.
+    static let reminderMinutesKey = "apex.notifications.reminderMinutes"
+
+    var reminderMinutes: Int {
+        get {
+            defaults.object(forKey: Self.reminderMinutesKey) == nil
+                ? Self.defaultReminderMinutes
+                : defaults.integer(forKey: Self.reminderMinutesKey)
+        }
+        set { defaults.set(min(max(newValue, 0), 24 * 60 - 1), forKey: Self.reminderMinutesKey) }
+    }
 
     /// How many days ahead to keep scheduled. iOS caps pending local
     /// notifications at 64; seven is plenty and leaves room to spare.
@@ -50,6 +65,7 @@ final class NotificationService {
 
     private enum Keys {
         static let didRequest = "apex.notifications.didRequestAuthorization"
+        static let cardDismissedDay = "apex.notifications.cardDismissedDay"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -84,6 +100,38 @@ final class NotificationService {
         }
     }
 
+    /// The player said yes on our own card — now spend the system
+    /// prompt. v1.3 moved the ask here from "automatically on day
+    /// three": a pre-prompt the player can decline costs nothing, while
+    /// iOS gives us exactly one system prompt, ever.
+    @discardableResult
+    func requestAuthorization() async -> Bool {
+        defaults.set(true, forKey: Keys.didRequest)
+        do {
+            return try await center.requestAuthorization(options: [.alert, .sound, .badge])
+        } catch {
+            DebugLog.log("notification authorization failed", error)
+            return false
+        }
+    }
+
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        await center.notificationSettings().authorizationStatus
+    }
+
+    /// Whether the debrief should offer the reminder card: never asked,
+    /// and not waved away in the last week.
+    func shouldOfferReminder(todayDayNumber: Int?) async -> Bool {
+        guard await authorizationStatus() == .notDetermined else { return false }
+        let dismissed = defaults.integer(forKey: Keys.cardDismissedDay)
+        guard dismissed > 0, let today = todayDayNumber else { return true }
+        return today - dismissed >= 7
+    }
+
+    func dismissReminderOffer(todayDayNumber: Int?) {
+        defaults.set(todayDayNumber ?? 1, forKey: Keys.cardDismissedDay)
+    }
+
     // MARK: - Scheduling
 
     /// Rebuilds the whole schedule. Call after every submission and on
@@ -107,13 +155,15 @@ final class NotificationService {
         for offset in firstOffset..<(firstOffset + Self.horizonDays) {
             guard let day = calendar.date(byAdding: .day, value: offset, to: now) else { continue }
             var components = calendar.dateComponents([.year, .month, .day], from: day)
-            components.hour = Self.reminderHour
-            components.minute = 0
+            components.hour = reminderMinutes / 60
+            components.minute = reminderMinutes % 60
             guard let fireDate = calendar.date(from: components), fireDate > now else { continue }
 
             let content = UNMutableNotificationContent()
             content.title = "Today's assignment is ready"
-            content.body = Self.body(forOffset: offset)
+            // Second line is the reason to open it even on a busy day:
+            // the reveal of the setup you were chasing yesterday.
+            content.body = Self.body(forOffset: offset) + "\nYesterday's optimal setup is out."
             content.sound = .default
 
             let trigger = UNCalendarNotificationTrigger(
@@ -150,7 +200,7 @@ final class NotificationService {
             "A new circuit, new weather, one budget.",
             "Every engineer in the world gets the same problem today.",
             "Eight decisions. One submission.",
-            "Yesterday's optimal setup is unlocked too.",
+            "Gold is out there. So are five rival teams.",
             "Three laps, and the third one tells the truth.",
             "Same circuit for everyone. Different answers.",
             "The stewards have published today's regulations."

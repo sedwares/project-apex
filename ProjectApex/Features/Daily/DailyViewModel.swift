@@ -67,6 +67,15 @@ final class DailyViewModel {
     /// after submission; nil while computing.
     private(set) var analysis: DayAnalysis?
 
+    /// The day's medal thresholds (v1.3). Loaded async — on the bay so
+    /// the targets are on screen before you lock, and again (from the
+    /// same cached solve) by the analysis.
+    private(set) var targets: DayTargets?
+
+    /// First assignment ever: the systems left for the player, in board
+    /// order. Empty on every other day. See GuidedStart.
+    private(set) var guidedFocus: [EngineeringCategoryID] = []
+
     /// The engineer's computed next test. Loaded async after
     /// submission; nil while computing or when nothing improves.
     private(set) var advice: EngineerAdvice?
@@ -92,6 +101,18 @@ final class DailyViewModel {
         self.uid = uid
         self.displayName = displayName
         restoreIfSubmitted()
+        startGuidedIfFirstDay()
+    }
+
+    /// Day one only: five systems arrive fitted, three are the player's
+    /// call. Keyed on "never completed a day", so it reaches a new
+    /// install — and a player who installed before 1.3 but never
+    /// finished one — and never anyone with a result on record.
+    private func startGuidedIfFirstDay() {
+        guard phase == .building, selections.isEmpty, !store.hasCompletedAnyDay else { return }
+        let plan = GuidedStart.plan(for: challenge)
+        selections = plan.prefilled
+        guidedFocus = plan.focus
     }
 
     /// Restores a previously submitted day: determinism guarantees the
@@ -291,11 +312,10 @@ final class DailyViewModel {
         Task { await refreshStanding() }
         Task { await loadAdvice() }
         Task {
-            // Ask for notifications only once the habit is real, then
-            // rebuild the schedule so today — now raced — is skipped.
-            let notifications = NotificationService.shared
-            await notifications.requestAuthorizationIfEarned(completedDays: streak)
-            await notifications.refreshSchedule(hasPlayedToday: true)
+            // Rebuild the schedule so today — now raced — is skipped.
+            // The permission itself is asked by the debrief's reminder
+            // card (v1.3), never by the system prompt cold.
+            await NotificationService.shared.refreshSchedule(hasPlayedToday: true)
         }
     }
 
@@ -389,15 +409,31 @@ final class DailyViewModel {
         isAnalysisLoading = true
         defer { isAnalysisLoading = false }
         let challenge = self.challenge
+        let solved = await DaySolveCache.shared.solved(challenge)
+        if targets == nil { targets = solved.targets }
         analysis = await Task.detached(priority: .userInitiated) {
             DayAnalyzer.analyze(
                 challenge: challenge,
-                playerAverageLapMillis: playerAverage
+                playerAverageLapMillis: playerAverage,
+                outcome: solved.outcome
             )
         }.value
         // The solve landing changes the feedback's cache key, so rebuild
         // it here rather than letting the next `body` pay for it.
         await primeFeedback()
+    }
+
+    /// Medal targets for the day. Cheap after the first call — the
+    /// solve is shared through DaySolveCache.
+    func loadTargets() async {
+        guard targets == nil else { return }
+        targets = await DaySolveCache.shared.solved(challenge).targets
+    }
+
+    /// The medal the official result earned, once targets are known.
+    var medal: Medal? {
+        guard let result, let targets else { return nil }
+        return targets.medal(forAverageLapMillis: result.averageLapTimeMillis)
     }
 
     /// Computes the engineer's next test. ~128 simulations — fast, but
@@ -513,36 +549,40 @@ final class DailyViewModel {
 
     // MARK: - Share
 
-    /// The social artifact ("Did you do today's Apex?"). Deliberately
-    /// reveals the identity and numbers, NEVER the option picks —
-    /// the setup is the puzzle answer.
-    var shareText: String? {
+    /// The five rivals, simulated once per view model. Five runs —
+    /// cheap, but the card is read from `body`.
+    /// @ObservationIgnored for the same reason as feedbackCache: it is
+    /// filled from inside a getter that `body` reads.
+    @ObservationIgnored private var rivalsCache: [RaceEntrant]?
+
+    private var rivals: [RaceEntrant] {
+        if let rivalsCache { return rivalsCache }
+        let field = RivalField.rivals(for: challenge)
+        rivalsCache = field
+        return field
+    }
+
+    /// The social artifact. Spoiler-free by construction — see
+    /// ShareCard: it never names a part or the setup identity.
+    var shareCard: ShareCard? {
         guard phase == .submitted, let result else { return nil }
-        let dayNumber = ChallengeSeed.dayNumber(fromDateKey: challenge.dateKey)
-        let title = dayNumber.map { "Project Apex — Day \($0)" } ?? "Project Apex"
+        return ShareCard.make(
+            result: result,
+            challenge: challenge,
+            targets: targets ?? analysis?.targets,
+            rivals: rivals
+        )
+    }
 
-        var lines: [String] = [
-            title,
-            "\(challenge.circuit.archetype.displayName) · \(challenge.weather.displayName)"
-        ]
-        if let banned = challenge.bannedOption {
-            let option = OptionLibrary.option(banned)
-            lines.append("No \(option.displayName) \(option.category.displayName)")
+    /// The text that travels with the image (and alone, where an app
+    /// takes only text). Adds the global standing once the field is big
+    /// enough for a percentage to mean something.
+    var shareText: String? {
+        guard let card = shareCard else { return nil }
+        var lines = card.text.components(separatedBy: "\n")
+        if case .loaded(let standing) = standingState, standing.totalEntries >= 10 {
+            lines.insert("Top \(standing.topPercent)% of engineers today", at: max(lines.count - 1, 0))
         }
-        lines.append("")
-        lines.append("Average Lap: \(FixedPoint.formatLapTime(millis: result.averageLapTimeMillis))")
-
-        if case .loaded(let standing) = standingState {
-            lines.append("Top \(standing.topPercent)% of engineers today · Rank #\(standing.rank)")
-        }
-        if let analysis {
-            lines.append("Better than \(analysis.beatPercent)% of possible setups")
-            let gap = analysis.gapToOptimalMillis
-            lines.append("Gap to perfect: +\(gap / 1000).\(String(format: "%03d", gap % 1000))s")
-        }
-        lines.append("Setup: \(result.setupIdentity.displayText)")
-        lines.append("")
-        lines.append("Did you do today's Apex?")
         return lines.joined(separator: "\n")
     }
 

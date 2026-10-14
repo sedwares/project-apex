@@ -43,7 +43,9 @@ struct EngineeringBayView: View {
                 identityText: viewModel.identityPreview?.displayText,
                 isEnabled: viewModel.phase == .building,
                 costDelta: { viewModel.costDeltaIfComparable(for: $0) },
-                onSelect: { viewModel.select($0) }
+                onSelect: { viewModel.select($0) },
+                focus: viewModel.phase == .building ? viewModel.guidedFocus : [],
+                intro: guidedIntro
             )
             .padding(.horizontal, Theme.Metric.gutter)
             .padding(.top, 12)
@@ -65,8 +67,17 @@ struct EngineeringBayView: View {
                 if let regulation = viewModel.regulationText {
                     Text(regulation).apexNotice(Theme.Color.signal)
                 }
+                if viewModel.phase == .building, !viewModel.guidedFocus.isEmpty {
+                    Text("First assignment · 5 systems fitted · \(focusNames) are your call")
+                        .apexNotice()
+                }
+                if viewModel.phase == .building, let targets = viewModel.targets {
+                    targetsStrip(targets)
+                }
             }
+            .animation(.easeOut(duration: 0.25), value: viewModel.targets)
         }
+        .task { await viewModel.loadTargets() }
         .safeAreaInset(edge: .bottom, spacing: 0) { budgetBar }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { viewModel.refreshDayState() }
@@ -86,6 +97,45 @@ struct EngineeringBayView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Medal targets (v1.3)
+
+    /// What each medal takes today, as average-lap times. Times, not
+    /// setups: they say how fast, never which parts.
+    private func targetsStrip(_ targets: DayTargets) -> some View {
+        HStack(spacing: 12) {
+            Text("Targets").apexLabel(Theme.Color.faint)
+            Spacer(minLength: 0)
+            ForEach(Array(Medal.allCases.reversed()), id: \.self) { medal in
+                HStack(spacing: 5) {
+                    Circle().fill(medal.color).frame(width: 7, height: 7)
+                    Text(FixedPoint.formatLapTime(millis: targets.millis(for: medal)))
+                        .apexData(11, weight: .medium, color: Theme.Color.cream)
+                        .monospacedDigit()
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(medal.label): \(FixedPoint.formatLapTime(millis: targets.millis(for: medal))) average lap")
+            }
+        }
+        .padding(.horizontal, Theme.Metric.gutter)
+        .padding(.vertical, 6)
+        .background(Theme.Color.panel)
+        .transition(.opacity)
+    }
+
+    // MARK: - Guided first day (v1.3)
+
+    /// "Aero, Tires and Gearing"
+    private var focusNames: String {
+        let names = viewModel.guidedFocus.map(\.displayName)
+        guard names.count > 1 else { return names.first ?? "" }
+        return names.dropLast().joined(separator: ", ") + " and " + names.last!
+    }
+
+    private var guidedIntro: String? {
+        guard viewModel.phase == .building, !viewModel.guidedFocus.isEmpty else { return nil }
+        return "First day, so five systems come fitted with a balanced baseline. \(focusNames) swing this circuit most — those are your call. Change anything you like."
     }
 
     // MARK: - Budget bar

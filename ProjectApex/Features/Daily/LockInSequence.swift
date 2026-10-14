@@ -41,7 +41,7 @@ struct LockInSequence: View {
                 garage
                     .transition(.opacity)
             case .race:
-                SimulationReplayView(result: result, challenge: challenge, onFinished: onFinished)
+                SimulationReplayView(result: result, challenge: challenge, dailyShare: true, onFinished: onFinished)
                     .transition(.opacity)
             }
         }

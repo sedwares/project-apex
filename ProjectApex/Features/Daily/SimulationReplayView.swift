@@ -41,6 +41,9 @@ struct SimulationReplayView: View {
     /// as a faded ghost of your own car, so a test setup is watched
     /// against the one you actually locked.
     var ghost: SimulationResult? = nil
+    /// The official Daily (v1.3): the flag shows your medal and a Share
+    /// button. Off for Quick Race, the Lab and the Experiment.
+    var dailyShare: Bool = false
     let onFinished: () -> Void
 
     /// One struct, one invalidation per update.
@@ -88,6 +91,8 @@ struct SimulationReplayView: View {
     /// rival crosses, so `finished` comes later — and the lap board used
     /// to wait for it, leaving Lap 3 blank with your car parked on the line.
     @State private var playerFinished = false
+    /// Medal targets, solved while the race runs (shared cache).
+    @State private var targets: DayTargets?
 
     private let secondsPerLap = 4.5
     private let sceneHeight: CGFloat = CircuitLoop.replayBandHeight
@@ -146,11 +151,24 @@ struct SimulationReplayView: View {
 
             Spacer(minLength: 0)
 
-            Button { onFinished() } label: {
-                Text(finished ? "Continue" : "Skip")
-                    .apexLabel(finished ? Theme.Color.signal : Theme.Color.muted)
+            HStack(spacing: 28) {
+                if finished, let card = shareCard {
+                    ShareResultButton(card: card, text: card.text) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "square.and.arrow.up")
+                            Text("Share")
+                        }
+                        .apexLabel(Theme.Color.cream)
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity)
+                }
+                Button { onFinished() } label: {
+                    Text(finished ? "Continue" : "Skip")
+                        .apexLabel(finished ? Theme.Color.signal : Theme.Color.muted)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             .padding(.bottom, 16)
         }
         .padding(.top, 18)
@@ -158,6 +176,13 @@ struct SimulationReplayView: View {
         .background(Theme.Color.ink)
         .onAppear(perform: buildScene)
         .task { await runStartLights() }
+        .task {
+            guard dailyShare else { return }
+            targets = await DaySolveCache.shared.solved(challenge).targets
+        }
+        .sensoryFeedback(.success, trigger: finished) { _, done in
+            done && dailyShare && medal != nil
+        }
     }
 
     // MARK: - Header
@@ -497,6 +522,22 @@ struct SimulationReplayView: View {
         scene?.start()
     }
 
+    // MARK: - Medal and share (v1.3, Daily only)
+
+    private var medal: Medal? {
+        targets?.medal(forAverageLapMillis: result.averageLapTimeMillis)
+    }
+
+    private var shareCard: ShareCard? {
+        guard dailyShare, ghost == nil, let timeline else { return nil }
+        return ShareCard.make(
+            result: result,
+            challenge: challenge,
+            targets: targets,
+            rivals: timeline.entrants.filter { !$0.isPlayer }
+        )
+    }
+
     // MARK: - Classification
 
     /// At the flag the lap board gives way to the result of the RACE:
@@ -511,8 +552,14 @@ struct SimulationReplayView: View {
             HStack {
                 Text("Classification").apexLabel(Theme.Color.faint)
                 Spacer()
-                Text("Avg lap").apexLabel(Theme.Color.faint)
+                if dailyShare, targets != nil {
+                    MedalBadge(medal: medal, size: 11)
+                        .transition(.opacity)
+                } else {
+                    Text("Avg lap").apexLabel(Theme.Color.faint)
+                }
             }
+            .animation(.easeOut(duration: 0.3), value: targets)
             .padding(.horizontal, 2)
             .padding(.bottom, 6)
 

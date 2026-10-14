@@ -41,13 +41,23 @@ public nonisolated struct DayAnalysis: Sendable, Equatable {
     /// candidates and shouldn't be claimed as beaten.
     public let legalCount: Int
 
+    /// The day's medal thresholds (v1.3). Nil only for analyses built
+    /// by hand in tests.
+    public let targets: DayTargets?
+
+    /// The medal this result earned.
+    public var medal: Medal? {
+        targets?.medal(forAverageLapMillis: minPossibleAverageLapMillis + gapToOptimalMillis)
+    }
+
     public init(
         minPossibleAverageLapMillis: Int,
         optimalSetup: PlayerSetup,
         beatPercent: Int,
         gapToOptimalMillis: Int,
         optimalSectorTotalsMillis: [Int] = [],
-        legalCount: Int = 0
+        legalCount: Int = 0,
+        targets: DayTargets? = nil
     ) {
         self.minPossibleAverageLapMillis = minPossibleAverageLapMillis
         self.optimalSetup = optimalSetup
@@ -55,37 +65,38 @@ public nonisolated struct DayAnalysis: Sendable, Equatable {
         self.gapToOptimalMillis = gapToOptimalMillis
         self.optimalSectorTotalsMillis = optimalSectorTotalsMillis
         self.legalCount = legalCount
+        self.targets = targets
     }
 }
 
 public nonisolated enum DayAnalyzer {
 
+    /// `outcome` lets a caller that already solved the day (the bay
+    /// solves it for the medal targets) skip a second 6,561-setup run.
     public static func analyze(
         challenge: DailyChallenge,
-        playerAverageLapMillis: Int
+        playerAverageLapMillis: Int,
+        outcome solved: SolverOutcome? = nil
     ) -> DayAnalysis {
-        let outcome = ExhaustiveSolver.solve(challenge: challenge)
+        let outcome = solved ?? ExhaustiveSolver.solve(challenge: challenge)
         let slowerCount = outcome.ranked.lazy
             .filter { $0.averageLapMillis > playerAverageLapMillis }
             .count
         let beat = slowerCount * 100 / max(outcome.legalCount, 1)
 
-        // One extra full simulation on top of the 4,374-setup solve —
-        // immaterial, and it gives the debrief a comparison target that
-        // actually varies.
-        let optimalRun = SimulationEngine.simulate(
-            setup: outcome.winner.setup,
-            circuit: challenge.circuit,
-            weather: challenge.weather
-        )
+        // One extra full simulation on top of the solve — immaterial,
+        // and it gives the debrief a comparison target that actually
+        // varies. DayTargets runs it and keeps the sector totals.
+        let targets = DayTargets.compute(challenge: challenge, outcome: outcome)
 
         return DayAnalysis(
             minPossibleAverageLapMillis: outcome.minPossibleAverageLapMillis,
             optimalSetup: outcome.winner.setup,
             beatPercent: beat,
             gapToOptimalMillis: playerAverageLapMillis - outcome.minPossibleAverageLapMillis,
-            optimalSectorTotalsMillis: optimalRun.sectorResults.map(\.totalMillis),
-            legalCount: outcome.legalCount
+            optimalSectorTotalsMillis: targets.optimalSectorTotalsMillis,
+            legalCount: outcome.legalCount,
+            targets: targets
         )
     }
 }

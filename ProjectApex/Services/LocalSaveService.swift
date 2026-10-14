@@ -74,6 +74,15 @@ protocol DailySaveStore: AnyObject {
     /// Streak as of a given day: alive if the last completion was
     /// today or yesterday; otherwise 0.
     func currentStreak(asOfDayNumber dayNumber: Int) -> Int
+    /// Whether this device has ever finished a day. Drives the guided
+    /// first assignment (v1.3).
+    var hasCompletedAnyDay: Bool { get }
+}
+
+extension DailySaveStore {
+    /// Stores that don't track it (test doubles) read as experienced
+    /// players, so nothing is pre-fitted behind a test's back.
+    var hasCompletedAnyDay: Bool { true }
 }
 
 @MainActor
@@ -91,6 +100,10 @@ final class UserDefaultsSaveStore: DailySaveStore {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+    }
+
+    var hasCompletedAnyDay: Bool {
+        defaults.integer(forKey: Keys.lastCompletedDay) > 0
     }
 
     func loadRecord(forDateKey dateKey: String) -> DailyRecord? {

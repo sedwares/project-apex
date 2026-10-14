@@ -596,14 +596,14 @@ final class DailyViewModelTests: XCTestCase {
         await vm.loadAnalysis()
 
         let text = try! XCTUnwrap(vm.shareText)
-        // What it must say:
-        XCTAssertTrue(text.contains("Project Apex"))
-        XCTAssertTrue(text.contains("Average Lap:"))
-        XCTAssertTrue(text.contains("Better than \(vm.analysis!.beatPercent)% of possible setups"))
-        XCTAssertTrue(text.contains(vm.result!.setupIdentity.displayText))
-        XCTAssertTrue(text.contains("Did you do today's Apex?"))
-        // What it must never leak — the actual option picks
-        // (identity words like "Balanced" are fine; picks are not):
+        // What it must say (v1.3 card):
+        XCTAssertTrue(text.contains("PROJECT APEX"))
+        XCTAssertTrue(text.contains("of 6"), "finishing position against the rivals")
+        XCTAssertTrue(text.contains(ShareCard.appURL))
+        XCTAssertNotNil(vm.targets, "analysis should leave the medal targets behind")
+        XCTAssertTrue(text.contains("to optimal") || text.contains("Optimal setup"))
+        // What it must never leak — the picks, or even the identity:
+        XCTAssertFalse(text.contains(vm.result!.setupIdentity.displayText), "identity leaked")
         XCTAssertFalse(text.contains("Medium"), "tire pick leaked")
         XCTAssertFalse(text.contains("Standard"), "cooling pick leaked")
         XCTAssertFalse(text.contains("Engine Mode"), "category detail leaked")

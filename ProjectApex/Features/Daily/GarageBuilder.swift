@@ -36,6 +36,11 @@ struct GarageBuilder: View {
     /// The setup actually raced (the Experiment): those cards are marked
     /// RACED, so a sandbox full of changes still shows the departure point.
     var raced: [EngineeringCategoryID: EngineeringOptionID]? = nil
+    /// The guided first day (v1.3): the systems left for the player.
+    /// Their tiles get a red dashed outline while still open.
+    var focus: [EngineeringCategoryID] = []
+    /// Replaces the pit wall's opening line before the first pick.
+    var intro: String? = nil
 
     /// The option just picked, for the pit wall's remark.
     @State private var lastPicked: EngineeringOptionID?
@@ -207,6 +212,9 @@ struct GarageBuilder: View {
             .overlay {
                 if isActive {
                     shape.stroke(Theme.Color.signal, lineWidth: 2)
+                } else if chosen == nil, focus.contains(id) {
+                    shape.stroke(Theme.Color.signal.opacity(0.8),
+                                 style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
                 } else if chosen == nil {
                     shape.stroke(Theme.Color.cream.opacity(0.22),
                                  style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
@@ -387,6 +395,8 @@ struct GarageBuilder: View {
                 .font(Theme.Font.body(12, weight: .regular))
                 .foregroundStyle(Theme.Color.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        } else if let intro {
+            pitWallLine(intro)
         } else {
             Text("Eight systems, one budget. Pick an option and the car takes shape.")
                 .font(Theme.Font.body(12, weight: .regular))
