@@ -67,6 +67,8 @@ struct HowToPlayView: View {
             } header: { Text("Race day").apexLabel(Theme.Color.muted) }
 
             Section {
+                bullet("rosette", "Medals: Gold, Silver or Bronze for landing in the top 1%, 10% or third of every legal setup today. The target lap times are shown in the bay before you lock — times only, never parts.")
+                bullet("square.and.arrow.up", "Share your result from the finish line or the debrief. The card shows your position, medal and sectors — never your setup, so it can't spoil anyone's day.")
                 bullet("timer", "Average Lap is official. Lap 3 usually shows wear and heat catching up with aggressive setups.")
                 bullet("chart.bar.fill", "\"Where the lap went\" compares each of your sectors to the optimal setup for the day. The three numbers add up to your gap.")
                 bullet("percent", "Possible setups beaten compares you to every car that was legal today — after the budget and the day's regulation rule the rest out.")
@@ -82,7 +84,8 @@ struct HowToPlayView: View {
 
             Section {
                 bullet("flame.fill", "Submit on consecutive UTC days to build a streak. Miss a day and it resets.")
-            } header: { Text("Streak").apexLabel(Theme.Color.muted) }
+                bullet("bell.fill", "Want a nudge? Turn on the daily reminder after a race, and pick its time in Settings.")
+            } header: { Text("Streak & reminders").apexLabel(Theme.Color.muted) }
 
             Section {
                 bullet("checkmark.seal.fill", "Fixed-point deterministic simulation — no randomness. Same setup, same result, on any device, forever.")
