@@ -59,20 +59,22 @@ public nonisolated enum PitWallRemark {
         // 2. Can the rest still fit?
         if !open.isEmpty {
             if remaining < cheapestRest {
-                return "\(remaining) credits for \(open.count) more \(systems(open.count)) — even the cheapest options won't fit."
+                return "\(credits(remaining)) for \(open.count) more \(systems(open.count)) — even the cheapest options won't fit."
             }
         }
 
         // 3. The car is complete.
         if open.isEmpty {
             return remaining == 0
-                ? "All eight systems, every credit spent. Lock it in when you're ready."
-                : "All eight systems fitted, \(remaining) credits in hand. Lock it in when you're ready."
+                // "Ready when you are", not "lock it in": the same garage
+                // runs Quick Race and the Lab, where nothing is locked.
+                ? "All eight systems, every credit spent. Ready when you are."
+                : "All eight systems fitted, \(credits(remaining)) in hand. Ready when you are."
         }
 
         // 4. Budget getting tight.
         if remaining - cheapestRest <= 3 {
-            return "\(remaining) credits for \(open.count) more \(systems(open.count)). Tight from here."
+            return "\(credits(remaining)) for \(open.count) more \(systems(open.count)). Tight from here."
         }
 
         let upside = strongestEffect(of: option, helping: true)
@@ -163,4 +165,7 @@ public nonisolated enum PitWallRemark {
     }
 
     private static func systems(_ n: Int) -> String { n == 1 ? "system" : "systems" }
+
+    /// "1 credit", "4 credits".
+    private static func credits(_ n: Int) -> String { n == 1 ? "1 credit" : "\(n) credits" }
 }
