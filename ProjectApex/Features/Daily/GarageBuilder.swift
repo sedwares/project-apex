@@ -237,8 +237,13 @@ struct GarageBuilder: View {
         return HStack(spacing: 10) {
             Button { step(-1) } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 14, weight: .bold))
-                    .frame(width: 32, height: 28)
+                    .font(.system(size: 15, weight: .bold))
+                    // 44pt: Apple's minimum touch target. At 32×28 a thumb
+                    // aimed at the arrow landed on the option card below.
+                    .frame(width: 44, height: 40)
+                    .background(Theme.Color.panel)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
+                    .contentShape(Rectangle())
             }
             .disabled(index == 1)
             .accessibilityLabel("Previous system")
@@ -253,14 +258,22 @@ struct GarageBuilder: View {
 
             Button { step(1) } label: {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .bold))
-                    .frame(width: 32, height: 28)
+                    .font(.system(size: 15, weight: .bold))
+                    // 44pt: Apple's minimum touch target. At 32×28 a thumb
+                    // aimed at the arrow landed on the option card below.
+                    .frame(width: 44, height: 40)
+                    .background(Theme.Color.panel)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
+                    .contentShape(Rectangle())
             }
             .disabled(index == Self.order.count)
             .accessibilityLabel("Next system")
         }
         .foregroundStyle(Theme.Color.cream)
         .buttonStyle(.plain)
+        // Clear air between the arrows and the cards, so a near-miss on
+        // an arrow doesn't fit a part.
+        .padding(.bottom, 6)
     }
 
     /// The three options for the system on screen.
