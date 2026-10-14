@@ -68,6 +68,13 @@ struct GarageBuilder: View {
             }
         }
         .onChange(of: selections) { old, new in
+            // Garage cleared (Quick Race → New race): back to system 1,
+            // and no stale pit wall line about the old car.
+            if new.isEmpty, !old.isEmpty {
+                lastPicked = nil
+                show(Self.order[0])
+                return
+            }
             guard isEnabled,
                   let category = SetupCarView.changedCategory(from: old, to: new) else { return }
             lastPicked = new[category]
