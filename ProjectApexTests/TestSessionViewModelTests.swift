@@ -121,7 +121,7 @@ final class TestSessionViewModelTests: XCTestCase {
         XCTAssertNil(vm.lastResult)
         XCTAssertNil(vm.bestAverageMillis)
         XCTAssertEqual(vm.runCount, 0)
-        XCTAssertTrue(vm.isComplete, "selections survive the reroll")
+        XCTAssertTrue(vm.selections.isEmpty, "a new race starts from an empty garage")
         XCTAssertTrue(ChallengeGenerator.budgetRange.contains(vm.budget))
         XCTAssertEqual(vm.circuit.sections.last, .finalStraight)
     }

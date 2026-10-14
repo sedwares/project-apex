@@ -142,6 +142,13 @@ final class TestSessionViewModel {
                 + rng.next(upperBound: ChallengeGenerator.budgetRange.count)
         )
         circuit = Self.makeCircuit(archetype: conditions.archetype, rng: &rng)
+        // A new race is a new puzzle: start from an empty garage. Carrying
+        // the old car over made sense for the list UI, but with the garage
+        // the build IS the game — and a car priced for the last budget
+        // often lands over the new one before you've touched anything.
+        // (Test Lab condition changes still keep the car: there, holding
+        // the setup fixed while one condition moves is the point.)
+        selections = [:]
         resetSession()
     }
 
