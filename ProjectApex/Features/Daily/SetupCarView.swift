@@ -344,12 +344,12 @@ struct SetupSpecGrid: View {
     private static let slots: [Slot] = [
         Slot(id: .aerodynamics,     label: "Aero"),
         Slot(id: .tires,            label: "Tires"),
-        Slot(id: .suspension,       label: "Susp"),
+        Slot(id: .suspension,       label: "Suspension"),
         Slot(id: .brakes,           label: "Brakes"),
         Slot(id: .engineMode,       label: "Engine"),
         Slot(id: .cooling,          label: "Cooling"),
-        Slot(id: .gearRatio,        label: "Gear"),
-        Slot(id: .reliabilityFocus, label: "Reliab")
+        Slot(id: .gearRatio,        label: "Gearing"),
+        Slot(id: .reliabilityFocus, label: "Reliability")
     ]
 
     /// The cell for the category just picked, lit red for a moment —
@@ -365,11 +365,16 @@ struct SetupSpecGrid: View {
             ForEach(Self.slots) { slot in
                 let chosen = selections[slot.id]
                 VStack(alignment: .leading, spacing: 2) {
+                    // Full names: "RELIAB" and "SUSP" read as typos. The
+                    // longest ("RELIABILITY") shrinks a touch to fit a
+                    // quarter of a small phone rather than truncate.
                     Text(slot.label)
                         .font(Theme.Font.label(8.5))
                         .tracking(1.0)
                         .textCase(.uppercase)
                         .foregroundStyle(Theme.Color.faint)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                     Text(chosen.map { OptionLibrary.option($0).displayName } ?? "—")
                         .font(Theme.Font.body(11, weight: .semibold))
                         .foregroundStyle(

@@ -485,11 +485,11 @@ struct GarageBuilder: View {
         case .engineMode: return "Engine"
         case .tires: return "Tires"
         case .aerodynamics: return "Aero"
-        case .suspension: return "Susp."
+        case .suspension: return "Suspension"
         case .gearRatio: return "Gearing"
         case .cooling: return "Cooling"
         case .brakes: return "Brakes"
-        case .reliabilityFocus: return "Reliab."
+        case .reliabilityFocus: return "Reliability"
         }
     }
 
