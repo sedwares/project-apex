@@ -38,6 +38,13 @@ struct DemandAxisRow: View {
     /// that would drift as the circuit generator changes.
     let rank: Int
     var barHeight: CGFloat = 5
+    /// Half-width layout (the Bay's two-column panel): just "22%",
+    /// one line, no "lower is better". The panel's heading carries
+    /// "% of this lap" once instead of every row repeating it.
+    var compact: Bool = false
+    /// Name on its own line, bar and percentage beneath — for a row of
+    /// four cells too narrow to hold a name and a number side by side.
+    var stacked: Bool = false
 
     /// Print this once beneath a group of rows. Without it the two
     /// quantities are still ambiguous no matter how they are coloured.
@@ -61,16 +68,58 @@ struct DemandAxisRow: View {
     }
 
     var body: some View {
+        if stacked { stackedBody } else { inlineBody }
+    }
+
+    private var bar: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Rectangle().fill(Theme.Color.cream.opacity(0.10))
+                Rectangle()
+                    .fill(tint)
+                    .frame(width: max(4, proxy.size.width * axis.fraction))
+                    .animation(.snappy(duration: 0.25), value: axis.fraction)
+            }
+        }
+        .frame(height: barHeight)
+    }
+
+    private var stackedBody: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(axis.name)
+                .font(Theme.Font.label(8.5))
+                .tracking(0.9)
+                .textCase(.uppercase)
+                .foregroundStyle(Theme.Color.cream)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            HStack(spacing: 5) {
+                bar
+                if let share = axis.demandShareBP {
+                    Text("\(share / 100)%")
+                        .apexData(10, weight: .medium, color: Theme.Color.muted)
+                        .fixedSize()
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var inlineBody: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(axis.name).apexLabel(Theme.Color.cream)
-                if axis.isInvertedStat {
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                if axis.isInvertedStat && !compact {
                     Text("lower is better")
                         .font(Theme.Font.body(10, weight: .regular))
                         .foregroundStyle(Theme.Color.faint)
                 }
                 Spacer(minLength: 8)
-                if let demand = axis.demandText {
+                if compact, let share = axis.demandShareBP {
+                    Text("\(share / 100)%").apexData(10.5, weight: .medium, color: Theme.Color.muted)
+                } else if let demand = axis.demandText {
                     Text(demand).apexData(10.5, weight: .medium, color: Theme.Color.muted)
                 }
             }

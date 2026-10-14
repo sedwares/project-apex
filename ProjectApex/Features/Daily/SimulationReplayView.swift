@@ -8,6 +8,15 @@
 //  session best, green for an improvement. Every number comes from the
 //  deterministic result. The view renders; it never computes.
 //
+//  ── v1.2: A RACE ───────────────────────────────────────────────────
+//  Players said the replay "didn't feel like a race". Now: five start
+//  lights, then five rival builds on track with you; a big position
+//  that flashes on every overtake; one radio line per lap naming your
+//  parts; and a classification at the flag. The pace dropped from 3.1s
+//  to 4.5s a lap so all of it can be followed. Hierarchy on purpose:
+//  your car (bright) → your position (big) → the radio (one line).
+//  Everything else is secondary.
+//
 //  ── PASS 8 ─────────────────────────────────────────────────────────
 //  The screen had the data for a timing tower and showed none of it.
 //  `LapResult.sectorTimesMillis` has been there all along; the HUD was
@@ -28,6 +37,10 @@ import ProjectApexCore
 struct SimulationReplayView: View {
     let result: SimulationResult
     let challenge: DailyChallenge
+    /// The Experiment passes the OFFICIAL result here: it joins the race
+    /// as a faded ghost of your own car, so a test setup is watched
+    /// against the one you actually locked.
+    var ghost: SimulationResult? = nil
     let onFinished: () -> Void
 
     /// One struct, one invalidation per update.
@@ -60,7 +73,23 @@ struct SimulationReplayView: View {
     @State private var scene: RaceScene?
     @State private var finished = false
 
-    private let secondsPerLap = 3.1
+    // Race
+    @State private var timeline: RaceTimeline?
+    /// Wall seconds each of the PLAYER's laps takes on screen. Not equal:
+    /// a quicker lap really is quicker to watch.
+    @State private var lapWall: [Double] = []
+    @State private var position = 0
+    @State private var fieldSize = 0
+    @State private var positionTone: Color = Theme.Color.cream
+    @State private var lightsOn = 0
+    @State private var lightsOut = false
+    @State private var ghostIndex: Int?
+    /// YOU have taken the flag. The race itself runs on until the last
+    /// rival crosses, so `finished` comes later — and the lap board used
+    /// to wait for it, leaving Lap 3 blank with your car parked on the line.
+    @State private var playerFinished = false
+
+    private let secondsPerLap = 4.5
     private let sceneHeight: CGFloat = CircuitLoop.replayBandHeight
 
     private var totalLaps: Int { max(result.lapResults.count, 1) }
@@ -73,9 +102,14 @@ struct SimulationReplayView: View {
                 if let scene {
                     SpriteView(scene: scene, preferredFramesPerSecond: 60).clipped()
                 }
+                if !lightsOut {
+                    startLights
+                        .transition(.opacity)
+                }
             }
             .frame(maxWidth: .infinity)
             .frame(height: sceneHeight)
+            .animation(.easeOut(duration: 0.15), value: lightsOut)
 
             timingTower
                 .padding(.top, 14)
@@ -83,8 +117,14 @@ struct SimulationReplayView: View {
             gauges
                 .padding(.top, 16)
 
-            lapBoard
-                .padding(.top, 18)
+            Group {
+                if finished, timeline != nil {
+                    classificationBoard
+                } else {
+                    lapBoard
+                }
+            }
+            .padding(.top, 18)
 
             ZStack {
                 if let radio {
@@ -93,7 +133,11 @@ struct SimulationReplayView: View {
                         .foregroundStyle(Theme.Color.muted)
                         .multilineTextAlignment(.center)
                         .id(radio)
-                        .transition(.opacity)
+                        // The old line leaves at once; only the new one
+                        // fades in. A symmetric crossfade drew both lines
+                        // on top of each other for a quarter second —
+                        // unreadable, and it is what a screenshot catches.
+                        .transition(.asymmetric(insertion: .opacity, removal: .identity))
                 }
             }
             .frame(height: 34)
@@ -113,6 +157,7 @@ struct SimulationReplayView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.Color.ink)
         .onAppear(perform: buildScene)
+        .task { await runStartLights() }
     }
 
     // MARK: - Header
@@ -131,8 +176,22 @@ struct SimulationReplayView: View {
             }
             .padding(.leading, 10)
             Spacer(minLength: 12)
-            Text("LAP \(lap)/\(totalLaps)")
-                .apexData(15, weight: .bold, color: Theme.Color.cream)
+            // Position first, big; lap underneath, small. The one number
+            // that changes on an overtake is the one to watch.
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(position > 0 ? "P\(position)" : "GRID")
+                    .apexData(26, weight: .bold, color: positionTone)
+                    .contentTransition(.identity)
+                    .animation(.easeOut(duration: 0.35), value: positionTone)
+                Text("LAP \(lap)/\(totalLaps)" + (fieldSize > 0 ? " · \(fieldSize) CARS" : ""))
+                    .font(Theme.Font.label(9))
+                    .tracking(1.3)
+                    .foregroundStyle(Theme.Color.muted)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(position > 0
+                                ? "Position \(position) of \(fieldSize), lap \(lap) of \(totalLaps)"
+                                : "On the grid")
         }
         .padding(.horizontal, Theme.Metric.gutter)
     }
@@ -155,9 +214,10 @@ struct SimulationReplayView: View {
         let target = result.lapResults.indices.contains(lap - 1)
             ? result.lapResults[lap - 1].timeMillis
             : 0
-        if finished { return target }
+        if finished || playerFinished { return target }
         let elapsed = date.timeIntervalSince(lapStartedAt)
-        let fraction = min(max(elapsed / secondsPerLap, 0), 1)
+        let thisLap = lapWall.indices.contains(lap - 1) ? lapWall[lap - 1] : secondsPerLap
+        let fraction = lightsOut ? min(max(elapsed / max(thisLap, 0.01), 0), 1) : 0
         return Int(Double(target) * fraction)
     }
 
@@ -218,6 +278,11 @@ struct SimulationReplayView: View {
                     .apexData(12, weight: .bold,
                               color: cell.tone == .pending ? Theme.Color.faint : tone)
                     .monospacedDigit()
+                    // Post the new split, never morph into it: the box
+                    // animates on `cell.millis`, and an interpolated Text
+                    // drew last lap's time and this lap's on top of each
+                    // other — the same bug the lap board fixed with .identity.
+                    .contentTransition(.identity)
             }
         }
         .padding(.horizontal, 8)
@@ -260,7 +325,7 @@ struct SimulationReplayView: View {
         .padding(.horizontal, Theme.Metric.gutter)
     }
 
-    private func isComplete(_ n: Int) -> Bool { finished || n < lap }
+    private func isComplete(_ n: Int) -> Bool { finished || playerFinished || n < lap }
 
     /// Fastest lap SO FAR. Reading it from the finished result would
     /// print the answer before the car has driven it.
@@ -274,7 +339,7 @@ struct SimulationReplayView: View {
 
     private func lapRow(_ n: Int) -> some View {
         let done = isComplete(n)
-        let isCurrent = n == lap && !finished
+        let isCurrent = n == lap && !finished && !playerFinished
         let isFastest = done && n == fastestCompletedLap && totalLaps > 1
         let millis = result.lapResults.indices.contains(n - 1)
             ? result.lapResults[n - 1].timeMillis : 0
@@ -353,6 +418,10 @@ struct SimulationReplayView: View {
         let value = min(max(rawValue, 0), 1)
         let severity = invert ? value : 1 - value
         let tone: Color = {
+            // On the grid there is no reading yet. Zero grip and zero
+            // tire scored as "trouble" and painted the car red before it
+            // had moved.
+            if !lightsOut { return Theme.Color.faint }
             if severity > 0.80 { return Theme.Color.signal }
             if severity > 0.65 { return Theme.Color.notice }
             return Theme.Color.cream
@@ -365,7 +434,7 @@ struct SimulationReplayView: View {
                 // Snap, don't interpolate. At 12 Hz a morphing
                 // percentage renders both readings at once and the
                 // digits overlap into nonsense.
-                Text("\(Int(value * 100))%")
+                Text(lightsOut ? "\(Int(value * 100))%" : "—")
                     .apexData(11, weight: .bold, color: tone)
                     .monospacedDigit()
                     .contentTransition(.identity)
@@ -384,6 +453,113 @@ struct SimulationReplayView: View {
         .frame(maxWidth: .infinity)
     }
 
+    // MARK: - Start lights
+
+    /// Five reds, one by one, then out. Two seconds everyone who has
+    /// watched a race recognises before anything moves.
+    private var startLights: some View {
+        HStack(spacing: 10) {
+            ForEach(0..<5, id: \.self) { i in
+                VStack(spacing: 5) {
+                    ForEach(0..<2, id: \.self) { _ in
+                        Circle()
+                            .fill(i < lightsOn ? Theme.Color.signal : Theme.Color.cream.opacity(0.10))
+                            .frame(width: 18, height: 18)
+                            .shadow(color: i < lightsOn ? Theme.Color.signal.opacity(0.8) : .clear,
+                                    radius: 8)
+                    }
+                }
+                .padding(6)
+                .background(Theme.Color.ink.opacity(0.92))
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+        }
+        .animation(.easeOut(duration: 0.08), value: lightsOn)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(lightsOn == 0 ? "On the grid" : "\(lightsOn) of 5 start lights")
+    }
+
+    private func runStartLights() async {
+        try? await Task.sleep(for: .milliseconds(500))
+        for i in 1...5 {
+            guard !Task.isCancelled else { return }
+            lightsOn = i
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            try? await Task.sleep(for: .milliseconds(550))
+        }
+        // The hold before lights out — fixed, so every race is the same
+        // and the game stays deterministic end to end.
+        try? await Task.sleep(for: .milliseconds(700))
+        guard !Task.isCancelled else { return }
+        lightsOut = true
+        lapStartedAt = Date()
+        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+        scene?.start()
+    }
+
+    // MARK: - Classification
+
+    /// At the flag the lap board gives way to the result of the RACE:
+    /// six rows, by real average lap — the same number the leaderboard
+    /// ranks. Rival setups are never shown, only their philosophy.
+    private var classificationBoard: some View {
+        let field = timeline!
+        let rows = field.classification
+        let leader = field.entrants[rows[0]].averageLapMillis
+
+        return VStack(spacing: 0) {
+            HStack {
+                Text("Classification").apexLabel(Theme.Color.faint)
+                Spacer()
+                Text("Avg lap").apexLabel(Theme.Color.faint)
+            }
+            .padding(.horizontal, 2)
+            .padding(.bottom, 6)
+
+            VStack(spacing: 1) {
+                ForEach(Array(rows.enumerated()), id: \.element) { place, index in
+                    let entrant = field.entrants[index]
+                    let gap = entrant.averageLapMillis - leader
+                    HStack(spacing: 0) {
+                        Rectangle()
+                            .fill(entrant.isPlayer ? Theme.Color.signal : Theme.Color.rule)
+                            .frame(width: 3)
+                        HStack(spacing: 10) {
+                            Text("P\(place + 1)")
+                                .apexData(13, weight: .bold,
+                                          color: entrant.isPlayer ? Theme.Color.cream : Theme.Color.muted)
+                                .frame(width: 30, alignment: .leading)
+                            // Same colour as the car on track.
+                            Circle()
+                                .fill(entrant.isPlayer
+                                      ? Theme.Color.signal
+                                      : (index == ghostIndex
+                                         ? Theme.Color.cream.opacity(0.45)
+                                         : Color(uiColor: RaceScene.colour(forEntrant: index, player: 0))))
+                                .frame(width: 8, height: 8)
+                            Text(entrant.isPlayer ? "YOU" : entrant.name)
+                                .font(entrant.isPlayer ? Theme.Font.display(15) : Theme.Font.body(13))
+                                .foregroundStyle(entrant.isPlayer ? Theme.Color.cream : Theme.Color.muted)
+                            Spacer(minLength: 8)
+                            Text(place == 0
+                                 ? FixedPoint.formatLapTime(millis: entrant.averageLapMillis)
+                                 : "+" + secondsText(gap))
+                                .apexData(13, weight: .bold,
+                                          color: entrant.isPlayer ? Theme.Color.cream : Theme.Color.muted)
+                                .monospacedDigit()
+                        }
+                        .padding(.leading, 10)
+                        .padding(.trailing, 12)
+                        .padding(.vertical, 6)
+                    }
+                    .background(entrant.isPlayer ? Theme.Color.signal.opacity(0.12) : Theme.Color.panel)
+                }
+            }
+        }
+        .padding(.horizontal, Theme.Metric.gutter)
+        .transition(.opacity)
+    }
+
     // MARK: - Scene wiring
 
     private func buildScene() {
@@ -393,14 +569,48 @@ struct SimulationReplayView: View {
         let radioFeed = FeedbackEngine.radioMessages(for: result, weather: challenge.weather)
         var radioIndex = 0
 
-        let scene = RaceScene(size: CGSize(width: 390, height: sceneHeight))
-        scene.configure(.init(
+        // The field: you plus five rival builds, all simulated on today's
+        // circuit under today's rules.
+        let you = RaceEntrant(id: "you", name: "You", isPlayer: true, result: result)
+        var entrants = [you] + RivalField.rivals(for: challenge)
+        if let ghost {
+            entrants.append(RaceEntrant(id: "official", name: "Official car", isPlayer: false, result: ghost))
+            ghostIndex = entrants.count - 1
+        }
+        let field = RaceTimeline(entrants: entrants)
+        timeline = field
+        fieldSize = field.entrants.count
+
+        var config = RaceScene.Config(
             samples: samples,
             sections: sections,
             archetype: challenge.circuit.archetype,
             totalLaps: totalLaps,
-            secondsPerLap: secondsPerLap
-        ))
+            secondsPerLap: secondsPerLap,
+            field: field,
+            playerIndex: 0
+        )
+        config.waitsForStart = true
+        config.ghostIndex = ghostIndex
+        let perClock = RaceScene.wallPerClock(config)
+        lapWall = field.lapDurations(of: 0).map { $0 * perClock }
+
+        let scene = RaceScene(size: CGSize(width: 390, height: sceneHeight))
+        scene.configure(config)
+
+        scene.onPosition = { newPosition, size in
+            let old = position
+            position = newPosition
+            fieldSize = size
+            guard old > 0, newPosition != old else { return }
+            // Gained a place: green and a crisp tick. Lost one: red, soft.
+            let gained = newPosition < old
+            positionTone = gained ? Theme.Color.gain : Theme.Color.signal
+            UIImpactFeedbackGenerator(style: gained ? .rigid : .soft).impactOccurred()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                positionTone = Theme.Color.cream
+            }
+        }
 
         scene.onSample = { sample, speed in
             var next = Readout()
@@ -440,6 +650,8 @@ struct SimulationReplayView: View {
             if completed < totalLaps {
                 lap = completed + 1
                 lapStartedAt = Date()
+            } else {
+                playerFinished = true
             }
         }
 

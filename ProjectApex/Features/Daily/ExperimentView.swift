@@ -19,6 +19,8 @@ import ProjectApexCore
 
 struct ExperimentView: View {
     @Bindable var viewModel: DailyViewModel
+    /// The test result being watched as a race, if any.
+    @State private var racing: SimulationResult?
 
     var body: some View {
         List {
@@ -31,56 +33,29 @@ struct ExperimentView: View {
             .listRowBackground(Theme.Color.panel)
             .listRowSeparator(.hidden)
 
-            // The sandbox car, built from the sandbox selections. This
-            // is where it earns its keep most: you are departing from a
-            // car you already raced, and the shape shows the departure.
+            // The same garage as the Bay and the Lab, built from the
+            // sandbox selections. Cards you actually raced are marked, so
+            // the departure from the locked car is visible at a glance.
             Section {
-                VStack(spacing: 12) {
-                    SetupCarView(selections: viewModel.experimentSelections)
-                        .frame(height: 168)
-                        .frame(maxWidth: .infinity)
-
-                    SetupSpecGrid(selections: viewModel.experimentSelections)
-                }
-                .padding(.vertical, 8)
+                GarageBuilder(
+                    selections: viewModel.experimentSelections,
+                    circuit: viewModel.challenge.circuit,
+                    weather: viewModel.challenge.weather,
+                    budget: viewModel.budget,
+                    banned: viewModel.bannedOption,
+                    identityText: experimentIdentity,
+                    costDelta: { viewModel.experimentCostDeltaIfComparable(for: $0) },
+                    onSelect: { viewModel.experimentSelect($0) },
+                    raced: viewModel.selections
+                )
+                // Clear of the inset-grouped row's clipped corners.
+                .padding(.horizontal, 6)
+                .padding(.top, 6)
+                .padding(.bottom, 16)
             }
-            .listRowBackground(Theme.Color.panel)
+            .listRowBackground(Theme.Color.ink)
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
             .listRowSeparator(.hidden)
-
-            if !viewModel.experimentSelections.isEmpty {
-                Section {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(Array(viewModel.experimentLivePreview.axes.enumerated()),
-                                id: \.element.name) { rank, axis in
-                            DemandAxisRow(axis: axis, rank: rank)
-                        }
-
-                        Text(DemandAxisRow.explainer)
-                            .font(Theme.Font.body(10.5, weight: .regular))
-                            .foregroundStyle(Theme.Color.faint)
-                            .padding(.top, 2)
-                    }
-                    .padding(.vertical, 6)
-                } header: {
-                    Text("What decides today").apexLabel(Theme.Color.muted)
-                }
-                .listRowBackground(Theme.Color.panel)
-                .listRowSeparator(.hidden)
-            }
-
-            ForEach(OptionLibrary.categories) { category in
-                Section {
-                    ForEach(category.options) { option in
-                        optionRow(option, in: category)
-                    }
-                    .listRowBackground(Theme.Color.panel)
-                    .listRowSeparatorTint(Theme.Color.rule)
-                    // Remove leading inset so the stripe reaches the row edge.
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                } header: {
-                    Text(category.displayName).apexLabel(Theme.Color.muted)
-                }
-            }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
@@ -103,6 +78,30 @@ struct ExperimentView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { testBar }
         .onAppear { viewModel.beginExperimentIfNeeded() }
+        .fullScreenCover(isPresented: Binding(
+            get: { racing != nil },
+            set: { if !$0 { racing = nil } }
+        )) {
+            if let racing {
+                // The test car races the field AND the official car,
+                // drawn as a faded ghost of your own.
+                SimulationReplayView(
+                    result: racing,
+                    challenge: viewModel.challenge,
+                    ghost: viewModel.result
+                ) {
+                    self.racing = nil
+                }
+            }
+        }
+    }
+
+    /// The sandbox car's character, once all eight are chosen.
+    private var experimentIdentity: String? {
+        let picks = viewModel.experimentSelections
+        guard picks.count == EngineeringCategoryID.allCases.count else { return nil }
+        let setup = PlayerSetup(challengeId: viewModel.challenge.id, selectedOptions: picks)
+        return SetupIdentity.derive(from: VehicleBuilder.build(from: setup)).displayText
     }
 
     // Shared with the Daily bay and the Lab — see EngineeringOptionRow.
@@ -136,6 +135,19 @@ struct ExperimentView: View {
                                   ? Theme.Color.signal : Theme.Color.cream)
                 Spacer()
                 resultReadout
+            }
+
+            // Run test stays instant — five ideas in a minute is the point
+            // of a sandbox. Watching is a choice, offered once there is a
+            // result to watch.
+            if let test = viewModel.experimentResult {
+                Button {
+                    racing = test
+                } label: {
+                    Label("Watch race vs official car", systemImage: "flag.checkered")
+                        .apexSecondaryButton()
+                }
+                .buttonStyle(.plain)
             }
 
             Button {

@@ -37,6 +37,8 @@ import SwiftUI
 import ProjectApexCore
 
 struct RaceDebriefView: View {
+    /// Same switch as the Bay's car stage.
+    @AppStorage("apex.bay.car3D") private var car3D = true
     @Bindable var viewModel: DailyViewModel
     @State private var revealOptimal = false
 
@@ -102,9 +104,19 @@ struct RaceDebriefView: View {
     private var lockedSetupSection: some View {
         Section {
             VStack(spacing: 12) {
-                SetupCarView(selections: viewModel.selections)
-                    .frame(height: 160)
-                    .frame(maxWidth: .infinity)
+                // Follows the Bay's 2D/3D switch, so the car you raced
+                // looks like the car you built.
+                Group {
+                    if car3D {
+                        SetupCar3DView(selections: viewModel.selections)
+                            .frame(height: 190)
+                            .accessibilityHidden(true)
+                    } else {
+                        SetupCarView(selections: viewModel.selections)
+                            .frame(height: 160)
+                    }
+                }
+                .frame(maxWidth: .infinity)
 
                 SetupSpecGrid(selections: viewModel.selections)
 

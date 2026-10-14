@@ -4,8 +4,14 @@
 //
 //  The SpriteKit replay: a car tracing the DAY'S OWN circuit while the
 //  deterministic telemetry stream drives the HUD. No physics — every
-//  value is read from Core. One car, no opponents, one top-down camera.
-//  A visualisation, not a driving game (product scope §15).
+//  value is read from Core. One top-down camera; a visualisation, not a
+//  driving game (product scope §15).
+//
+//  ── v1.2: A FIELD ──────────────────────────────────────────────────
+//  Five rival builds race alongside the player (RivalField), every car
+//  placed by RaceTimeline from its own simulated sector times. Order is
+//  exact; gaps are drawn magnified (see RaceField.swift). The race
+//  holds on the grid until `start()` so the start lights can run.
 //
 //  ── PASS 8 ─────────────────────────────────────────────────────────
 //  Three changes, all of them about making a lap feel like a lap.
@@ -38,12 +44,31 @@ final class RaceScene: SKScene {
         let archetype: CircuitArchetype
         let totalLaps: Int
         let secondsPerLap: Double
+        /// Everyone in the race, the player included. Drives every car.
+        let field: RaceTimeline
+        let playerIndex: Int
+        /// Hold on the grid until `start()` — the start lights.
+        var waitsForStart: Bool = false
+        /// An entrant drawn as a ghost of the player's own car — the
+        /// Experiment races the official setup this way.
+        var ghostIndex: Int? = nil
+    }
+
+    /// Wall seconds per unit of the field's visual clock: the player's
+    /// race fills exactly `secondsPerLap × laps`, and everyone else runs
+    /// at the same rate, so faster cars really do arrive sooner.
+    static func wallPerClock(_ c: Config) -> Double {
+        let finish = c.field.finishClock(of: c.playerIndex)
+        guard finish > 0 else { return 0 }
+        return c.secondsPerLap * Double(max(c.totalLaps, 1)) / finish
     }
 
     // Callbacks to SwiftUI for HUD + lifecycle.
     var onSample: ((TelemetrySample, Double) -> Void)?
     var onSectorComplete: ((_ lap: Int, _ sector: Int) -> Void)?
     var onLapComplete: ((Int) -> Void)?
+    /// Player's position (1-based) and field size, whenever it changes.
+    var onPosition: ((Int, Int) -> Void)?
     var onFinished: (() -> Void)?
 
     private var config: Config!
@@ -53,6 +78,18 @@ final class RaceScene: SKScene {
     private let trackLine = SKShapeNode()
     private let racingLine = SKShapeNode()
     private var started = false
+    private var built = false
+    private var running = false
+    private var startRequested = false
+
+    /// One node per entrant; the player's slot holds `car`.
+    private var cars: [SKNode] = []
+    /// Lateral lane per entrant, in points across the track, so a close
+    /// pack reads as cars side by side rather than one blob.
+    private var lanes: [CGFloat] = []
+    /// Finishing position per entrant (0 = winner), by when each takes
+    /// the flag — used to park them in order after the line.
+    private var finishRank: [Int] = []
 
     private var loop = CircuitLoop(size: .zero, sections: [])
     private var trailPoints: [CGPoint] = []
@@ -72,6 +109,25 @@ final class RaceScene: SKScene {
         static let session = SKColor(red: 0.749, green: 0.000, blue: 1.000, alpha: 1)
     }
 
+    /// One colour per rival, in field order. Chosen to stay clear of the
+    /// colours that already MEAN something here — red is you, green is a
+    /// gain, gold is a warning, purple is a fastest lap — and to read on
+    /// near-black. The classification shows the same colour beside each
+    /// name, so a car on track can be matched to its result.
+    static let rivalColours: [SKColor] = [
+        SKColor(red: 0.33, green: 0.58, blue: 0.98, alpha: 1),   // blue
+        SKColor(red: 0.18, green: 0.78, blue: 0.74, alpha: 1),   // teal
+        SKColor(red: 0.98, green: 0.62, blue: 0.24, alpha: 1),   // orange
+        SKColor(red: 0.60, green: 0.84, blue: 0.30, alpha: 1),   // lime
+        SKColor(red: 0.86, green: 0.48, blue: 0.82, alpha: 1)    // pink
+    ]
+
+    /// Colour for an entrant, given which entrant is the player.
+    static func colour(forEntrant i: Int, player: Int) -> SKColor {
+        let r = i < player ? i : i - 1
+        return rivalColours[max(r, 0) % rivalColours.count]
+    }
+
     func configure(_ config: Config) { self.config = config }
 
     override func didMove(to view: SKView) {
@@ -87,6 +143,17 @@ final class RaceScene: SKScene {
         buildTrack()
         buildKerbs()
         buildCar()
+        buildField()
+        built = true
+        place(atClock: 0)
+        if !config.waitsForStart || startRequested { start() }
+    }
+
+    /// Lights out. Safe to call before the scene is on screen.
+    func start() {
+        guard built else { startRequested = true; return }
+        guard !running else { return }
+        running = true
         runReplay()
     }
 
@@ -354,99 +421,210 @@ final class RaceScene: SKScene {
         addChild(car)
     }
 
+    // MARK: - The field
+
+    /// Rivals: the same silhouette as the player's car, smaller and in
+    /// a dim grey, with no stripe, glow or trail. The eye should always
+    /// find YOUR car first; the others are there to be passed.
+    private func buildField() {
+        let field = config.field
+        let byFinish = field.entrants.indices.sorted {
+            let a = field.finishClock(of: $0), b = field.finishClock(of: $1)
+            return a != b ? a < b : $0 < $1
+        }
+        finishRank = Array(repeating: 0, count: field.entrants.count)
+        for (rank, i) in byFinish.enumerated() { finishRank[i] = rank }
+        let rivalLanes: [CGFloat] = [-5.0, 5.0, -2.6, 2.6, -6.4, 6.4]
+        var r = 0
+        for i in field.entrants.indices {
+            if i == config.playerIndex {
+                cars.append(car)
+                lanes.append(0)
+            } else {
+                let node = i == config.ghostIndex
+                    ? Self.rivalCar(Paint.cream, alpha: 0.38)
+                    : Self.rivalCar(Self.colour(forEntrant: i, player: config.playerIndex))
+                node.zPosition = 7
+                addChild(node)
+                cars.append(node)
+                lanes.append(rivalLanes[r % rivalLanes.count])
+                r += 1
+            }
+        }
+    }
+
+    private static func rivalCar(_ colour: SKColor, alpha: CGFloat = 0.85) -> SKNode {
+        let node = SKNode()
+        // Solid team colour, but a touch dimmer than the player's cream
+        // car so yours still leads the eye.
+        let grey = colour.withAlphaComponent(alpha)
+        for (x, y) in [(-7.6, 8.0), (7.6, 8.0), (-8.1, -8.0), (8.1, -8.0)] {
+            let w = SKShapeNode(rectOf: CGSize(width: 4.8, height: 8.6), cornerRadius: 1.6)
+            w.position = CGPoint(x: x, y: y)
+            w.fillColor = Paint.ink
+            w.strokeColor = grey
+            w.lineWidth = 0.8
+            node.addChild(w)
+        }
+        let body = CGMutablePath()
+        body.addLines(between: [
+            CGPoint(x: -9, y: 16), CGPoint(x: 9, y: 16), CGPoint(x: 9, y: 13),
+            CGPoint(x: 3, y: 12), CGPoint(x: 5.6, y: 2), CGPoint(x: 5.6, y: -6),
+            CGPoint(x: 3.5, y: -13), CGPoint(x: 8, y: -13), CGPoint(x: 8, y: -16),
+            CGPoint(x: -8, y: -16), CGPoint(x: -8, y: -13), CGPoint(x: -3.5, y: -13),
+            CGPoint(x: -5.6, y: -6), CGPoint(x: -5.6, y: 2), CGPoint(x: -3, y: 12),
+            CGPoint(x: -9, y: 13)
+        ])
+        body.closeSubpath()
+        let shell = SKShapeNode(path: body)
+        shell.fillColor = grey
+        shell.strokeColor = .clear
+        node.addChild(shell)
+        node.setScale(0.62)
+        return node
+    }
+
+    /// Where an entrant is, in lap-time terms, after `g` sectors.
+    /// Sector gates come from the circuit, so a car crosses each drawn
+    /// gate exactly when its sector time says it does.
+    private func lapTime(forSectors g: Double) -> (lap: Int, fraction: Double) {
+        let laps = max(config.totalLaps, 1)
+        let total = Double(laps * 3)
+        let gg = min(max(g, 0), total)
+        if gg >= total { return (laps, 1.0) }
+        let lapIndex = Int(gg / 3)
+        let within = gg - Double(lapIndex * 3)
+        let s = min(Int(within), 2)
+        let f = within - Double(s)
+        let gates = loop.sectorStartTimes
+        let a = s < gates.count ? gates[s] : 1.0
+        let b = s + 1 < gates.count ? gates[s + 1] : 1.0
+        return (lapIndex + 1, a + f * (b - a))
+    }
+
+    /// Put every car where the field says it is at `clock`. Returns the
+    /// player's sector progress and lap-time fraction for the HUD.
+    @discardableResult
+    private func place(atClock clock: Double) -> (sectors: Double, fraction: Double) {
+        var player = (sectors: 0.0, fraction: 0.0)
+        for i in cars.indices {
+            let g = config.field.sectorProgress(of: i, at: clock)
+            let lt = lapTime(forSectors: g)
+            var arc = loop.arcPosition(atLapTime: lt.fraction)
+
+            // After the flag a car rolls on down the straight and stops
+            // in finishing order — the winner furthest along — instead
+            // of every car parking on the same spot on the line.
+            let finish = config.field.finishClock(of: i)
+            if clock >= finish {
+                let n = cars.count
+                let target = 0.028 * Double(n - finishRank[i])
+                let lastLap = config.field.lapDurations(of: i).last ?? 1
+                let coasted = (clock - finish) / max(lastLap, 1) * 0.6
+                arc = (loop.arcPosition(atLapTime: 0) + min(target, coasted))
+                    .truncatingRemainder(dividingBy: 1)
+            }
+            let heading = loop.heading(at: arc)
+            var pos = loop.point(at: arc)
+            let lane = lanes[i]
+            pos.x += -sin(heading) * lane
+            pos.y += cos(heading) * lane
+            cars[i].position = pos
+            // -pi/2: the car is drawn nose-up; heading() is from +x.
+            cars[i].zRotation = heading - .pi / 2
+            if i == config.playerIndex {
+                carGlow.position = pos
+                player = (g, lt.fraction)
+            }
+        }
+        return player
+    }
+
     // MARK: - Replay drive
 
     private func runReplay() {
         let totalLaps = max(config.totalLaps, 1)
-        let totalDuration = config.secondsPerLap * Double(totalLaps)
+        let totalSectors = totalLaps * 3
+        let field = config.field
+        let me = config.playerIndex
+        let perClock = Self.wallPerClock(config)
+        guard perClock > 0 else { onFinished?(); return }
+        // Run until the LAST car finishes, so the player sees who they
+        // beat cross the line behind them.
+        let totalWall = field.lastFinishClock * perClock
         let sampleCount = max(config.samples.count, 1)
-        let gates = loop.sectorStartTimes
 
         var elapsed = 0.0
-        var lastLapTime = 0.0
-        var lap = 1
-        var sectorsDone = 0
-        var finalLapReported = false
+        var sectorsReported = 0
+        var lastPosition = 0
 
-        // Read the REAL elapsed time SpriteKit passes in, rather than
-        // counting frames.
-        //
-        // This used to accumulate 1/60 per callback, which silently
-        // assumes the scene never misses a frame. It does — the trail
-        // rebuilds its path every frame — so over a nine-second replay
-        // the counter fell short of the duration, runProgress never
-        // reached 1.0, and the car stopped wherever the frame count ran
-        // out instead of on the start/finish line. A race that ends with
-        // the car parked halfway down the back straight reads as broken,
-        // because it is.
-        let drive = SKAction.customAction(withDuration: totalDuration) { [weak self] _, elapsedTime in
+        // Real elapsed time from SpriteKit, never a frame count: a
+        // dropped frame must not leave a car short of the line.
+        let drive = SKAction.customAction(withDuration: totalWall) { [weak self] _, elapsedTime in
             guard let self else { return }
-            let now = min(Double(elapsedTime), totalDuration)
+            let now = min(Double(elapsedTime), totalWall)
             let delta = max(0, now - elapsed)
             elapsed = now
-            let runProgress = totalDuration > 0 ? min(1.0, now / totalDuration) : 1.0
+            let clock = now / perClock
 
-            // Where we are within THIS lap, in time.
-            let lapTime = (runProgress * Double(totalLaps)).truncatingRemainder(dividingBy: 1.0)
+            let player = self.place(atClock: clock)
 
-            // Lap rollover: time went backwards.
-            if lapTime < lastLapTime {
-                if lap == totalLaps { finalLapReported = true }
-                self.onLapComplete?(lap)
-                lap = min(lap + 1, totalLaps)
-                sectorsDone = 0
+            // Player's sector lines and laps, in order, once each.
+            let whole = min(Int(player.sectors), totalSectors)
+            while sectorsReported < whole {
+                sectorsReported += 1
+                let sector = (sectorsReported - 1) % 3
+                let lap = (sectorsReported - 1) / 3 + 1
+                if sector < 2 {
+                    self.onSectorComplete?(lap, sector)
+                } else {
+                    self.onLapComplete?(lap)
+                }
             }
 
-            // Sector gates, in order, once each per lap.
-            while sectorsDone < gates.count - 1 {
-                let next = gates[sectorsDone + 1]
-                if lapTime >= next && lastLapTime < next {
-                    sectorsDone += 1
-                    self.onSectorComplete?(lap, sectorsDone - 1)
-                } else { break }
+            // Running order.
+            let order = field.order(at: clock)
+            let position = (order.firstIndex(of: me) ?? 0) + 1
+            if position != lastPosition {
+                lastPosition = position
+                self.onPosition?(position, field.entrants.count)
             }
-            lastLapTime = lapTime
 
-            // Position and facing along the circuit's own geometry.
-            let arc = self.loop.arcPosition(atLapTime: lapTime)
-            let pos = self.loop.point(at: arc)
-            self.car.position = pos
-            // -pi/2 because the car path is drawn nose-up while
-            // heading() measures from the +x axis.
-            self.car.zRotation = self.loop.heading(at: arc) - .pi / 2
-            self.carGlow.position = pos
-
-            // Trail length follows speed, so the straights visibly
-            // stretch and the hairpin visibly bunches up.
-            let speed = self.loop.speed(atLapTime: lapTime)
+            // Glow and trail follow the player's speed; once the player
+            // has taken the flag they coast to a stop on the line.
+            let finished = player.sectors >= Double(totalSectors)
+            let speed = finished ? 0.15 : self.loop.speed(atLapTime: player.fraction)
             self.carGlow.setScale(0.75 + speed * 0.65)
             self.carGlow.alpha = 0.45 + speed * 0.55
-            self.pushTrail(pos, speed: speed)
+            self.pushTrail(self.car.position, speed: speed)
 
-            // Throttled HUD update.
             self.sampleAccumulator += delta
             if self.sampleAccumulator >= self.sampleInterval {
                 self.sampleAccumulator = 0
-                let idx = min(sampleCount - 1, Int(runProgress * Double(sampleCount)))
+                let progress = player.sectors / Double(totalSectors)
+                let idx = min(sampleCount - 1, Int(progress * Double(sampleCount)))
                 self.onSample?(self.config.samples[idx], speed)
             }
         }
 
-        run(drive) { [weak self] in
-            guard let self else { return }
-            // Park exactly on the line. Even with real timing the last
-            // callback can land a few milliseconds short of the
-            // duration, and "a few milliseconds" at racing speed is a
-            // visible gap between the car and the start/finish.
-            let line = self.loop.point(at: 0)
-            self.car.position = line
-            self.car.zRotation = self.loop.heading(at: 0) - .pi / 2
-            self.carGlow.position = line
-            self.pushTrail(line, speed: self.loop.speed(atLapTime: 0))
+        // A short cool-down after the last car takes the flag, so the
+        // field rolls on and settles in finishing order on the straight.
+        let lastFlag = field.lastFinishClock
+        let coolDown = SKAction.customAction(withDuration: 1.4) { [weak self] _, t in
+            self?.place(atClock: lastFlag + Double(t) / perClock)
+        }
 
-            // The rollover above may already have reported the last lap
-            // if the final callback landed exactly on the duration.
-            if !finalLapReported { self.onLapComplete?(totalLaps) }
+        run(.sequence([drive, coolDown])) { [weak self] in
+            guard let self else { return }
+            self.place(atClock: lastFlag + 1.4 / perClock)
+            while sectorsReported < totalSectors {
+                sectorsReported += 1
+                let sector = (sectorsReported - 1) % 3
+                let lap = (sectorsReported - 1) / 3 + 1
+                if sector < 2 { self.onSectorComplete?(lap, sector) } else { self.onLapComplete?(lap) }
+            }
+            let order = field.order(at: field.lastFinishClock + 1)
+            self.onPosition?((order.firstIndex(of: me) ?? 0) + 1, field.entrants.count)
             self.onFinished?()
         }
     }

@@ -3,8 +3,9 @@
 //  ProjectApex
 //
 //  Quick Race / Custom Test — the lab. Conditions up top (editable),
-//  the Bay list below, unlimited Run at the bottom with last/best
-//  readouts and the Engineer's one-line read.
+//  the shared garage below (GarageBuilder, same as the Daily bay),
+//  unlimited Run at the bottom with last/best readouts and the
+//  Engineer's read.
 //
 
 import SwiftUI
@@ -22,43 +23,32 @@ struct TestSessionView: View {
         List {
             conditionsSection
 
-            // The same car as the Daily bay. The lab is where setups are
-            // tried side by side, so seeing the whole thing at once
-            // matters MORE here than there — you are comparing against
-            // the run you just did, and the spec grid is the only place
-            // all eight choices are legible without scrolling.
+            // The same garage as the Daily bay: car, the eight-system
+            // board, three option cards and the pit wall. One List row, so
+            // the car and the cards scroll together and the car's reaction
+            // to a pick is always on screen with the card you tapped.
             Section {
-                VStack(spacing: 12) {
-                    SetupCarView(selections: viewModel.selections)
-                        .frame(height: 168)
-                        .frame(maxWidth: .infinity)
-
-                    SetupSpecGrid(selections: viewModel.selections)
-
-                    if let identity = viewModel.identityPreview {
-                        Text(identity.displayText)
-                            .apexDisplay(16)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .padding(.vertical, 8)
+                GarageBuilder(
+                    selections: viewModel.selections,
+                    circuit: viewModel.circuit,
+                    weather: viewModel.conditions.weather,
+                    budget: viewModel.budget,
+                    banned: viewModel.challengeAdapter.bannedOption,
+                    identityText: viewModel.identityPreview?.displayText,
+                    costDelta: { viewModel.costDeltaIfComparable(for: $0) },
+                    onSelect: { viewModel.select($0) }
+                )
+                // The inset-grouped list rounds and CLIPS the corners of
+                // this row, and the pit wall line is the last thing in it —
+                // flush to the edge, its bar and first letter were cut off
+                // at the bottom-left corner. Keep the content clear of it.
+                .padding(.horizontal, 6)
+                .padding(.top, 6)
+                .padding(.bottom, 16)
             }
-            .listRowBackground(Theme.Color.panel)
+            .listRowBackground(Theme.Color.ink)
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
             .listRowSeparator(.hidden)
-
-            ForEach(OptionLibrary.categories) { category in
-                Section {
-                    ForEach(category.options) { option in
-                        optionRow(option, in: category)
-                    }
-                    .listRowBackground(Theme.Color.panel)
-                    .listRowSeparatorTint(Theme.Color.rule)
-                    // Remove leading inset so the stripe reaches the row edge.
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                } header: {
-                    Text(category.displayName).apexLabel(Theme.Color.muted)
-                }
-            }
 
             if let feedback = viewModel.feedback {
                 Section {

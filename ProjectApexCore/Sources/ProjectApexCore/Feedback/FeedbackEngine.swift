@@ -217,49 +217,73 @@ public nonisolated enum FeedbackEngine {
 
     /// Deterministic radio feed derived from the actual result — the
     /// engineer never says anything the telemetry can't back up.
+    ///
+    /// ONE MESSAGE PER LAP, and where it can, it names the part. The
+    /// race now carries rivals and a position as well, so the radio has
+    /// to be the quiet layer: three lines in a race, each held long
+    /// enough to read, each tied to a choice the player made — "the
+    /// Soft tires are going off", not "rear tires going off". Every line
+    /// is still backed by a simulation event; none is invented.
     public static func radioMessages(
         for result: SimulationResult,
         weather: Weather
     ) -> [RadioMessage] {
-        var feed: [RadioMessage] = []
         let events = result.events
+        let picks = result.setup.selectedOptions
+        func name(_ c: EngineeringCategoryID) -> String? {
+            picks[c].map { OptionLibrary.option($0).displayName }
+        }
 
-        // Lap 1: warm-up talk.
-        feed.append(RadioMessage(
-            lap: 1, atFraction: 0.15,
+        // Lap 1: warm-up.
+        let lap1 = RadioMessage(
+            lap: 1, atFraction: 0.20,
             text: weather == .cold
                 ? "Cold track. Long warm-up — take care."
-                : "Tires coming in. Build the rhythm."
-        ))
+                : (name(.tires).map { "\($0) tires coming in. Build the rhythm." }
+                   ?? "Tires coming in. Build the rhythm.")
+        )
 
-        // Lap 2: peak pace + the car's genuine strength.
-        feed.append(RadioMessage(lap: 2, atFraction: 0.1, text: "Peak pace. Push now."))
+        // Lap 2: the car's genuine strength, named.
+        let lap2Text: String
         if events.contains(.straightLineSpeedStrong) {
-            feed.append(RadioMessage(lap: 2, atFraction: 0.55, text: "Strong on the straights."))
+            lap2Text = name(.aerodynamics).map { "\($0) aero paying off on the straights." }
+                ?? "Strong on the straights."
         } else if events.contains(.gripStrong) {
-            feed.append(RadioMessage(lap: 2, atFraction: 0.55, text: "Good grip through the corners."))
+            lap2Text = name(.tires).map { "\($0) tires biting through the corners." }
+                ?? "Good grip through the corners."
         } else if events.contains(.brakingPerformanceStrong) {
-            feed.append(RadioMessage(lap: 2, atFraction: 0.55, text: "Braking is working for us."))
+            lap2Text = name(.brakes).map { "\($0) brakes are working for us." }
+                ?? "Braking is working for us."
         } else if let best = result.sectorResults.min(by: { $0.gapMillis < $1.gapMillis }),
                   best.gapMillis < 0 {
-            feed.append(RadioMessage(lap: 2, atFraction: 0.55, text: "We're quick in Sector \(best.index + 1)."))
+            lap2Text = "We're quick in Sector \(best.index + 1). Push now."
+        } else {
+            lap2Text = "Peak pace. Push now."
         }
+        let lap2 = RadioMessage(lap: 2, atFraction: 0.35, text: lap2Text)
 
-        // Lap 3: decay truth.
-        if events.contains(.tireWearHigh) {
-            feed.append(RadioMessage(lap: 3, atFraction: 0.3, text: "Rear tires going off."))
-        }
+        // Lap 3: the most important truth about the end of the race.
+        // Heat first (it costs the most), then tires, then reliability.
+        let lap3Text: String
         if events.contains(.engineHeatHigh) {
-            feed.append(RadioMessage(lap: 3, atFraction: 0.5, text: "Temps climbing — power's fading."))
+            if picks[.cooling] == .coolingLight {
+                lap3Text = "Temps climbing — Light cooling can't keep up."
+            } else {
+                lap3Text = name(.engineMode).map { "Temps climbing — the \($0) engine is cooking." }
+                    ?? "Temps climbing — power's fading."
+            }
+        } else if events.contains(.tireWearHigh) {
+            lap3Text = name(.tires).map { "The \($0) tires are going off." } ?? "Rear tires going off."
+        } else if events.contains(.reliabilityConcern) {
+            lap3Text = name(.reliabilityFocus).map { "\($0) reliability — something's not right. Nurse it home." }
+                ?? "Reliability flag. Nurse it home."
+        } else {
+            lap3Text = "Car's holding together. Bring it home."
         }
-        if events.contains(.reliabilityConcern) {
-            feed.append(RadioMessage(lap: 3, atFraction: 0.7, text: "Reliability flag. Nurse it home."))
-        }
-        let decay: Set<SimulationEvent> = [.tireWearHigh, .engineHeatHigh, .reliabilityConcern]
-        if events.allSatisfy({ !decay.contains($0) }) {
-            feed.append(RadioMessage(lap: 3, atFraction: 0.4, text: "Car's holding together. Bring it home."))
-        }
-        return feed
+        let lap3 = RadioMessage(lap: 3, atFraction: 0.40, text: lap3Text)
+
+        let laps = result.lapResults.count
+        return [lap1, lap2, lap3].filter { $0.lap <= max(laps, 1) }
     }
 
     // MARK: - Prose report (debrief)
