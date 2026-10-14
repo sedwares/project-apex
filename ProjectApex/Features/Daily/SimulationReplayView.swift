@@ -239,7 +239,13 @@ struct SimulationReplayView: View {
         let target = result.lapResults.indices.contains(lap - 1)
             ? result.lapResults[lap - 1].timeMillis
             : 0
-        if finished || playerFinished { return target }
+        // At the flag the clock becomes your AVERAGE lap — the number
+        // the classification below ranks by. It used to freeze on Lap 3,
+        // which on a car that fades (heat, wear, risky reliability) read
+        // several seconds slower than the average the Quick Race screen
+        // and the board's gaps were built from.
+        if finished { return result.averageLapTimeMillis }
+        if playerFinished { return target }
         let elapsed = date.timeIntervalSince(lapStartedAt)
         let thisLap = lapWall.indices.contains(lap - 1) ? lapWall[lap - 1] : secondsPerLap
         let fraction = lightsOut ? min(max(elapsed / max(thisLap, 0.01), 0), 1) : 0
@@ -255,9 +261,19 @@ struct SimulationReplayView: View {
                         .monospacedDigit()
                 }
                 Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text("SPEED").apexLabel(Theme.Color.faint)
-                    speedBar
+                if finished, let last = result.lapResults.last {
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Text("Avg lap").apexLabel(Theme.Color.cream)
+                        Text("Last lap " + FixedPoint.formatLapTime(millis: last.timeMillis))
+                            .apexData(11, weight: .medium, color: Theme.Color.muted)
+                            .monospacedDigit()
+                    }
+                    .transition(.opacity)
+                } else {
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text("SPEED").apexLabel(Theme.Color.faint)
+                        speedBar
+                    }
                 }
             }
 
