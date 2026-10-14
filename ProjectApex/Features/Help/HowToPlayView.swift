@@ -20,11 +20,11 @@ struct HowToPlayView: View {
 
     private let loop: [Step] = [
         Step(icon: "wrench.and.screwdriver.fill", title: "Build",
-             body: "Choose 8 engineering systems for today's circuit."),
+             body: "Fit all 8 systems in the garage for today's circuit."),
         Step(icon: "lock.fill", title: "Lock",
-             body: "One Daily submission. No undo."),
-        Step(icon: "flag.checkered", title: "Watch",
-             body: "Your setup runs a deterministic 3-lap simulation."),
+             body: "Hold to lock your setup. One Daily submission, no undo."),
+        Step(icon: "flag.checkered", title: "Race",
+             body: "Lights out: 3 laps against five rival teams."),
         Step(icon: "chart.line.uptrend.xyaxis", title: "Learn",
              body: "The debrief shows exactly where you gained or lost time."),
         Step(icon: "flask.fill", title: "Experiment",
@@ -52,11 +52,19 @@ struct HowToPlayView: View {
             } header: { Text("The loop").apexLabel(Theme.Color.muted) }
 
             Section {
+                bullet("square.grid.2x2", "The garage shows all eight systems at once. Tap one to see its three options; dashed tiles are still open. Swipe or use the arrows to move between systems.")
                 bullet("wand.and.stars", "Every option shows its main upside in green and its main cost in grey. There is no hidden math, and there is no option without a cost — that is the game.")
-                bullet("dollarsign.circle", "Select anything, even over budget. The total turns red — only Submit is blocked, not the tap.")
+                bullet("dot.radiowaves.left.and.right", "The pit wall reacts to every pick, using only what's on screen: the circuit's demands, the weather and your budget. It never gives away the answer.")
+                bullet("dollarsign.circle", "Select anything, even over budget. The total turns red — only locking is blocked, not the tap.")
                 bullet("exclamationmark.triangle.fill", "Most days carry a technical regulation: one option the stewards have outlawed. It's shown on the brief and struck through in the bay.")
                 bullet("chart.bar.xaxis", "\"What decides today\" shows the four systems this circuit rewards most. The bar is your car's level; the percentage is how much of the lap that system is worth.")
             } header: { Text("Building your car").apexLabel(Theme.Color.muted) }
+
+            Section {
+                bullet("flag.2.crossed", "You race five rival teams, each with its own philosophy: Low Drag, High Downforce, Endurance, Balanced and All Attack. They follow today's budget and regulation too.")
+                bullet("list.number", "Your position updates live. The final classification ranks every car by average lap.")
+                bullet("antenna.radiowaves.left.and.right", "Team radio calls out what's working and what isn't — the parts that are winning or losing you time.")
+            } header: { Text("Race day").apexLabel(Theme.Color.muted) }
 
             Section {
                 bullet("timer", "Average Lap is official. Lap 3 usually shows wear and heat catching up with aggressive setups.")
@@ -67,7 +75,7 @@ struct HowToPlayView: View {
             } header: { Text("Reading the debrief").apexLabel(Theme.Color.muted) }
 
             Section {
-                bullet("flask.fill", "Experiment: replay today's exact conditions with a different setup. Unlimited, unofficial.")
+                bullet("flask.fill", "Experiment: replay today's exact conditions with a different setup — and watch it race your official car. Unlimited, unofficial.")
                 bullet("flag.checkered", "Quick Race: a surprise circuit and weather, right now.")
                 bullet("slider.horizontal.3", "Test Lab: pick your own circuit, weather, and budget.")
             } header: { Text("Practice modes").apexLabel(Theme.Color.muted) }
